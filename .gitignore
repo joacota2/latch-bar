@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build and test output
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local Codex and generated schemas
+work/
+outputs/
+
+# Tauri / Rust output
+src-tauri/target/
+
+# Local environment and editor state
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
