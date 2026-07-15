@@ -114,3 +114,11 @@ export interface AppSettings {
   codexHome: string;
   excludedApplications: string[];
 }
+
+export interface NativeSelection {
+  text: string;
+  application: string;
+  windowTitle?: string;
+  processId: number;
+  bounds: { x: number; y: number; width: number; height: number };
+}

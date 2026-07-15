@@ -6,12 +6,13 @@ Latch Bar is a contextual desktop surface for the Codex installation already on 
 
 - A polished Codex Studio with Agents, Runs, MCPs, Skills, Workspaces, and Settings.
 - Full agent CRUD and configuration for prompt, runtime, sandbox, approvals, workspace, context, tools, Skills, and output.
-- A functional Context Bar state machine: idle → running → approval → result/error.
-- An expanded thread surface with effective runtime settings and constructed prompt inspection.
-- Persistent browser-preview state and a native SQLite migration.
-- A Tauri 2 shell with Codex status, MCP/Skill discovery, and a supervised `codex app-server` JSONL client.
+- A separate always-on-top Context Bar window driven by real macOS text selections.
+- Native Accessibility capture, secure-field exclusion, bounds positioning, direct replacement, and clipboard-paste fallback.
+- Persistent local agents, settings, and real run history (no seeded or simulated runs).
+- A Tauri 2 shell with Codex status, MCP/Skill discovery, and a supervised `codex app-server` JSONL client with streaming, approvals, cancellation, and shutdown.
+- A platform-adapter boundary with the Windows UI Automation module isolated for the next implementation.
 
-The browser adapter is deterministic so the complete product flow can be reviewed without executing real commands. In the Tauri shell, discovery and runtime commands switch to the local Codex installation.
+The browser build is Studio-only. Selection capture and Codex execution intentionally fail closed outside the Tauri desktop shell; there is no simulated runtime adapter.
 
 ## Run it
 
@@ -36,22 +37,25 @@ rustup update stable
 npm run tauri dev
 ```
 
+On first launch, open **Settings → Selection → Enable Accessibility**, allow Latch Bar under **System Settings → Privacy & Security → Accessibility**, then relaunch if macOS requests it. Select at least three characters in another application; the native Context Bar appears beside the selected range. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** writes through Accessibility and falls back to a targeted Command-V paste when the source control does not expose direct replacement.
+
 ## Architecture
 
 ```text
-React Studio + Context Bar
-          │
-          ├── Browser preview adapter (deterministic QA)
-          │
-          └── Tauri commands
-                 ├── Codex environment scanner
-                 ├── MCP / Skill discovery
-                 ├── SQLite schema
-                 └── Codex app-server manager
-                        ├── thread/start
-                        ├── turn/start / interrupt
-                        ├── streamed notifications
-                        └── approval responses
+React Studio                 Native Context Bar window
+      │                                │
+      └──────────── Tauri commands ────┘
+                       │
+                       ├── PlatformAdapter
+                       │      ├── macOS AXUIElement (implemented)
+                       │      └── Windows UI Automation (next)
+                       ├── Codex environment scanner
+                       ├── MCP / Skill discovery
+                       └── Codex app-server manager
+                              ├── thread/start
+                              ├── turn/start / interrupt
+                              ├── streamed notifications
+                              └── approval responses
 ```
 
 The runtime protocol follows the current [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server.md). MCP configuration remains owned by Codex in `config.toml`, and Skills remain in Codex-discovered global, plugin, managed, or workspace locations.

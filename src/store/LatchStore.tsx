@@ -43,7 +43,12 @@ function readPersisted() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as { agents?: CodexAgent[]; runs?: Run[]; settings?: AppSettings };
+    const parsed = JSON.parse(raw) as { agents?: CodexAgent[]; runs?: Run[]; settings?: AppSettings };
+    const legacySeedIds = new Set(["run-security", "run-writing", "run-error", "run-plan"]);
+    return {
+      ...parsed,
+      runs: parsed.runs?.filter((run) => !legacySeedIds.has(run.id) && run.sourceApplication !== "Selection preview" && !run.threadId?.startsWith("thr_preview_")),
+    };
   } catch {
     return null;
   }
@@ -70,6 +75,22 @@ export function LatchProvider({ children }: { children: ReactNode }) {
       setMcps(environment.mcps);
       setSkills(environment.skills);
     }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const syncWindowState = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY || !event.newValue) return;
+      try {
+        const next = JSON.parse(event.newValue) as { agents?: CodexAgent[]; runs?: Run[]; settings?: AppSettings };
+        if (next.agents) setAgents(next.agents);
+        if (next.runs) setRuns(next.runs);
+        if (next.settings) setSettings(next.settings);
+      } catch {
+        // Ignore partial writes from an interrupted window shutdown.
+      }
+    };
+    window.addEventListener("storage", syncWindowState);
+    return () => window.removeEventListener("storage", syncWindowState);
   }, []);
 
   const persist = useCallback((nextAgents: CodexAgent[], nextRuns: Run[], nextSettings: AppSettings) => {

@@ -5,18 +5,12 @@ import type { CodexAgent } from "../domain";
 import { useLatch } from "../store/LatchStore";
 
 function AgentCard({ agent }: { agent: CodexAgent }) {
-  const { setSelectedAgentId, setContextAgentId, setContextBarState, setContextResult } = useLatch();
-  const test = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    setContextAgentId(agent.id);
-    setContextResult("");
-    setContextBarState("running");
-  };
+  const { setSelectedAgentId } = useLatch();
   return (
     <button className="agent-card" onClick={() => setSelectedAgentId(agent.id)}>
       <div className="agent-card-top"><AgentGlyph agent={agent} size="lg" /><span className="mini-pin"><Pin size={12} fill="currentColor" /></span></div>
       <div className="agent-card-copy"><h4>{agent.name}</h4><p>{agent.description}</p></div>
-      <div className="agent-card-footer"><span>{agent.sandbox === "read-only" ? "No computer access" : agent.workspaceMode === "ask-each-time" ? "Choose workspace" : "Workspace access"}</span><span className="round-play" onClick={test}><Play size={13} fill="currentColor" /></span></div>
+      <div className="agent-card-footer"><span>{agent.sandbox === "read-only" ? "No computer access" : agent.workspaceMode === "ask-each-time" ? "Choose workspace" : "Workspace access"}</span><span className="round-play"><Play size={13} fill="currentColor" /></span></div>
     </button>
   );
 }

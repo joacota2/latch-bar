@@ -16,7 +16,7 @@ function ChoiceCard({ active, title, body, onClick, warning }: { active: boolean
 }
 
 export function AgentEditor() {
-  const { agents, selectedAgentId, setSelectedAgentId, updateAgent, deleteAgent, duplicateAgent, mcps, skills, setContextAgentId, setContextBarState, setContextResult, notify } = useLatch();
+  const { agents, selectedAgentId, setSelectedAgentId, updateAgent, deleteAgent, duplicateAgent, mcps, skills, notify } = useLatch();
   const source = agents.find((agent) => agent.id === selectedAgentId);
   const [draft, setDraft] = useState<CodexAgent | null>(source ?? null);
   const [tab, setTab] = useState<EditorTab>("general");
@@ -25,7 +25,7 @@ export function AgentEditor() {
   if (!source || !draft) return null;
   const patch = <K extends keyof CodexAgent>(key: K, value: CodexAgent[K]) => setDraft((current) => current ? { ...current, [key]: value } : current);
   const save = () => { updateAgent(draft); setSaved(true); notify("Agent saved"); window.setTimeout(() => setSaved(false), 1400); };
-  const test = () => { updateAgent(draft); setContextAgentId(draft.id); setContextResult(""); setContextBarState("running"); setSelectedAgentId(null); };
+  const prepareTest = () => { updateAgent(draft); setSelectedAgentId(null); notify("Agent saved. Select text in another app to run it."); };
   const toggleMcp = (id: string) => patch("enabledMcpServers", draft.enabledMcpServers.includes(id) ? draft.enabledMcpServers.filter((item) => item !== id) : [...draft.enabledMcpServers, id]);
   const toggleSkill = (id: string) => patch("enabledSkills", draft.enabledSkills.includes(id) ? draft.enabledSkills.filter((item) => item !== id) : [...draft.enabledSkills, id]);
 
@@ -65,7 +65,7 @@ export function AgentEditor() {
           <section className="editor-section"><label className="select-field"><span>Expected output</span><select value={draft.outputPolicy.expectedOutput} onChange={(event) => patch("outputPolicy", { ...draft.outputPolicy, expectedOutput: event.target.value as CodexAgent["outputPolicy"]["expectedOutput"] })}><option value="automatic">Automatic</option><option value="plain-text">Plain text</option><option value="markdown">Markdown</option><option value="code">Code</option><option value="diff">Diff</option></select></label><div className="inline-settings"><div><strong>Stream preview</strong><p>Show the answer as Codex produces it.</p></div><Toggle checked={draft.outputPolicy.streamPreview} onChange={(value) => patch("outputPolicy", { ...draft.outputPolicy, streamPreview: value })} label="Stream preview" /></div><div className="inline-settings"><div><strong>Allow replacement</strong><p>Offer Replace only when the selected control is editable.</p></div><Toggle checked={draft.outputPolicy.allowReplace} onChange={(value) => patch("outputPolicy", { ...draft.outputPolicy, allowReplace: value })} label="Allow replacement" /></div></section>
         </>}
       </div>
-      <footer className="editor-footer"><button className="danger-button" onClick={() => { if (window.confirm(`Delete ${draft.name}?`)) deleteAgent(draft.id); }}><Trash2 size={15} /> Delete</button><div><button className="secondary-button" onClick={test}><Play size={15} /> Test agent</button><button className="primary-button" onClick={save}>{saved ? <Check size={15} /> : <Save size={15} />}{saved ? "Saved" : "Save changes"}</button></div></footer>
+      <footer className="editor-footer"><button className="danger-button" onClick={() => { if (window.confirm(`Delete ${draft.name}?`)) deleteAgent(draft.id); }}><Trash2 size={15} /> Delete</button><div><button className="secondary-button" onClick={prepareTest}><Play size={15} /> Save & test with selection</button><button className="primary-button" onClick={save}>{saved ? <Check size={15} /> : <Save size={15} />}{saved ? "Saved" : "Save changes"}</button></div></footer>
     </aside>
   </div>;
 }

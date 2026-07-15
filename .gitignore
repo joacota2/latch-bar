@@ -12,6 +12,7 @@ outputs/
 
 # Tauri / Rust output
 src-tauri/target/
+src-tauri/gen/
 
 # Local environment and editor state
 .env

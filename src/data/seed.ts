@@ -80,12 +80,7 @@ export const seedWorkspaces: Workspace[] = [
   { id: "mobile", name: "Mobile App", path: "~/Projects/mobile", branch: "develop", lastUsed: "Yesterday", color: "#f6a969" },
 ];
 
-export const seedRuns: Run[] = [
-  { id: "run-security", agentId: "staff-engineer", agentName: "Staff engineer", agentIcon: "⌘", status: "approval", sourceApplication: "Visual Studio Code", sourceIcon: "VS", workspacePath: "~/Projects/acme-web", activity: "Wants to run npm test", command: "npm test", model: "Codex default", sandbox: "workspace-write", startedAt: "A minute ago", threadId: "thr_8f3c21" },
-  { id: "run-writing", agentId: "improve-writing", agentName: "Improve writing", agentIcon: "✦", status: "completed", sourceApplication: "Notion", sourceIcon: "N", activity: "Copy refined text", model: "Codex default", sandbox: "read-only", duration: "4.8s", startedAt: "18 minutes ago", finalResponse: "The launch plan now has a clear owner, a measurable outcome, and a focused timeline." },
-  { id: "run-error", agentId: "explain-error", agentName: "Explain error", agentIcon: "?", status: "completed", sourceApplication: "Terminal", sourceIcon: ">_", workspacePath: "~/Projects/mobile", activity: "Explained build failure", model: "Codex default", sandbox: "read-only", duration: "7.2s", startedAt: "Yesterday", finalResponse: "The build is failing because the generated client is out of date with the checked-in schema." },
-  { id: "run-plan", agentId: "plan-implementation", agentName: "Plan implementation", agentIcon: "↗", status: "failed", sourceApplication: "Linear", sourceIcon: "L", workspacePath: "~/Projects/acme-web", activity: "Workspace is no longer available", model: "Codex default", sandbox: "read-only", duration: "1.1s", startedAt: "Yesterday" },
-];
+export const seedRuns: Run[] = [];
 
 export const seedSettings: AppSettings = {
   launchAtLogin: true,
