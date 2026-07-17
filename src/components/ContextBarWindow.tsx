@@ -546,11 +546,11 @@ export function ContextBarWindow() {
           </header>
           {running && <div className="context-stream-progress"><i /></div>}
           <div ref={answerRef} className={`context-answer context-conversation${running ? " is-streaming" : ""}`} role="log" aria-live="polite">
-            {messages.map((message) => <article key={message.id} className={`context-message ${message.role}`}>
+            {messages.map((message) => <article key={message.id} className={`context-chat-message ${message.role}`}>
               <span>{message.role === "user" ? "You" : agent.name}</span>
               <p>{message.text}</p>
             </article>)}
-            {running && <article className="context-message assistant is-streaming">
+            {running && <article className="context-chat-message assistant is-streaming">
               <span>{agent.name}</span>
               {result ? <p>{result}</p> : <div className="context-stream-placeholder"><i /><span>Codex is preparing the response…</span></div>}
             </article>}

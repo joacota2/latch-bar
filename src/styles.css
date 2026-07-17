@@ -573,14 +573,14 @@ kbd { border: 1px solid #d8dcd4; border-bottom-width: 2px; border-radius: 5px; b
 .context-run-view .context-answer { font-size: 11px; line-height: 1.6; }
 .context-answer.is-streaming { border-color: rgba(201,243,107,.1); }
 .context-conversation { display: flex; flex-direction: column; gap: 10px; white-space: normal; }
-.context-message { width: min(88%, 620px); padding: 9px 11px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; animation: message-in .18s cubic-bezier(.2,.8,.2,1) both; }
+.context-chat-message { width: min(88%, 620px); padding: 9px 11px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; animation: message-in .18s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes message-in { from { opacity: 0; transform: translateY(4px); } }
-.context-message > span { display: block; margin-bottom: 5px; color: #8f9a92; font-size: 7.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; }
-.context-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.context-message.assistant { align-self: flex-start; background: #222c25; color: #e8eee9; }
-.context-message.user { align-self: flex-end; border-color: rgba(201,243,107,.25); background: rgba(201,243,107,.14); color: #f1f6ed; }
-.context-message.user > span { color: var(--lime); }
-.context-message.is-streaming { min-height: 72px; }
+.context-chat-message > span { display: block; margin-bottom: 5px; color: #8f9a92; font-size: 7.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; }
+.context-chat-message p { margin: 0; color: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.context-chat-message.assistant { align-self: flex-start; background: #222c25; color: #e8eee9; }
+.context-chat-message.user { align-self: flex-end; border-color: rgba(201,243,107,.25); background: rgba(201,243,107,.14); color: #f1f6ed; }
+.context-chat-message.user > span { color: var(--lime); }
+.context-chat-message.is-streaming { min-height: 72px; }
 .context-stream-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; gap: 9px; color: #909a93; }
 .context-stream-placeholder i { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 0 rgba(201,243,107,.3); animation: context-pulse 1.2s ease-out infinite; }
 @keyframes context-pulse { 70% { box-shadow: 0 0 0 7px rgba(201,243,107,0); } }
