@@ -11,6 +11,8 @@ impl PlatformAdapter for UnsupportedAdapter {
             accessibility_trusted: false,
             permission_required: None,
             implementation: "unsupported",
+            monitor_running: false,
+            context_bar_ready: false,
         }
     }
     fn capture_selection(&self) -> Result<Option<NativeSelection>, String> {

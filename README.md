@@ -37,7 +37,15 @@ rustup update stable
 npm run tauri dev
 ```
 
-On first launch, open **Settings → Selection → Enable Accessibility**, allow Latch Bar under **System Settings → Privacy & Security → Accessibility**, then relaunch if macOS requests it. Select at least three characters in another application; the native Context Bar appears beside the selected range. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** writes through Accessibility and falls back to a targeted Command-V paste when the source control does not expose direct replacement.
+On first launch, open **Settings → Selection → Enable Accessibility** and allow Latch Bar under **System Settings → Privacy & Security → Accessibility**. Latch checks the permission silently on startup and prompts only after an explicit enable action. Select at least three characters in another application; the native Context Bar appears beside the selected range. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** writes through Accessibility and falls back to a targeted Command-V paste when the source control does not expose direct replacement.
+
+macOS records privacy permissions against the app's code-signing identity. Ad-hoc builds are identified by a code hash, so rebuilding them invalidates an apparently enabled Accessibility entry. Persistent installed builds must therefore use an Apple signing identity:
+
+```bash
+APPLE_SIGNING_IDENTITY="Developer ID Application: Example (TEAMID)" npm run tauri build
+```
+
+The release bundle hook rejects unsigned macOS bundles. Use `npm run tauri build -- --no-bundle` for a compile-only check. `tauri dev` remains ad-hoc; after its native executable changes, macOS may require removing the old Accessibility entry and granting the rebuilt development binary again.
 
 ## Architecture
 

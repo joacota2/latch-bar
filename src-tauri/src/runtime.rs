@@ -4,7 +4,10 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
     process::{Child, ChildStdin, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
@@ -17,6 +20,8 @@ struct RuntimeProcess {
     stdin: Arc<Mutex<ChildStdin>>,
     thread_id: Arc<Mutex<Option<String>>>,
     turn_id: Arc<Mutex<Option<String>>>,
+    next_request_id: AtomicU64,
+    effort: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -97,11 +102,17 @@ pub fn start_codex_run(
     let child = Arc::new(Mutex::new(child));
     let thread_id = Arc::new(Mutex::new(None));
     let turn_id = Arc::new(Mutex::new(None));
+    let effort = agent
+        .reasoning_effort
+        .clone()
+        .filter(|value| value != "default");
     let process = RuntimeProcess {
         child: child.clone(),
         stdin: stdin.clone(),
         thread_id: thread_id.clone(),
         turn_id: turn_id.clone(),
+        next_request_id: AtomicU64::new(3),
+        effort: effort.clone(),
     };
     manager
         .0
@@ -134,10 +145,6 @@ pub fn start_codex_run(
     let stdin_reader = stdin.clone();
     let prompt_reader = prompt.clone();
     let skill_inputs = crate::scanner::selected_skill_inputs(cwd.as_deref(), &agent.enabled_skills);
-    let effort = agent
-        .reasoning_effort
-        .clone()
-        .filter(|value| value != "default");
     let event_app = app.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -182,6 +189,42 @@ pub fn start_codex_run(
         }
     });
     Ok(StartRunResponse { run_id, prompt })
+}
+
+#[tauri::command]
+pub fn continue_codex_run(
+    manager: State<RuntimeManager>,
+    run_id: String,
+    prompt: String,
+) -> Result<(), String> {
+    let processes = manager
+        .0
+        .lock()
+        .map_err(|_| "Runtime manager is unavailable")?;
+    let process = processes.get(&run_id).ok_or("Run not found")?;
+    let thread_id = process
+        .thread_id
+        .lock()
+        .map_err(|_| "Thread state unavailable")?
+        .clone()
+        .ok_or("Thread has not started")?;
+    let request_id = process.next_request_id.fetch_add(1, Ordering::SeqCst);
+    *process
+        .turn_id
+        .lock()
+        .map_err(|_| "Turn state unavailable")? = None;
+    send(
+        &process.stdin,
+        &json!({
+            "method":"turn/start",
+            "id":request_id,
+            "params":{
+                "threadId":thread_id,
+                "input":[{"type":"text","text":prompt,"text_elements":[]}],
+                "effort":process.effort
+            }
+        }),
+    )
 }
 
 #[tauri::command]

@@ -15,6 +15,8 @@ impl PlatformAdapter for WindowsAdapter {
             accessibility_trusted: false,
             permission_required: None,
             implementation: "uiautomation-pending",
+            monitor_running: false,
+            context_bar_ready: false,
         }
     }
 

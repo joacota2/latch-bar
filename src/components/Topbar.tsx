@@ -1,7 +1,7 @@
 import { CircleHelp, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NavKey } from "../domain";
-import { getPlatformStatus } from "../services/runtime";
+import { getPlatformStatus, requestAccessibilityPermission } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
 
 const labels: Record<NavKey, [string, string]> = {
@@ -90,11 +90,11 @@ export function Topbar() {
       return;
     }
     try {
-      const status = await getPlatformStatus(false);
+      const status = await getPlatformStatus();
       if (!status.supported) {
         notify("Context Bar selection requires the Latch Bar desktop app");
       } else if (!status.accessibilityTrusted) {
-        await getPlatformStatus(true);
+        await requestAccessibilityPermission();
         notify("Allow Latch Bar in Accessibility. No restart is needed after approval.");
       } else {
         notify("Context Bar enabled");

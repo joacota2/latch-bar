@@ -7,6 +7,10 @@
     "core:default",
     "dialog:default",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "codex://threads/*" }]
+    },
     "shell:allow-open"
   ]
 }

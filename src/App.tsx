@@ -23,19 +23,18 @@ const pages = {
 export function App() {
   const { activeNav, selectedAgentId, toasts, settings, notify } = useLatch();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("latch-sidebar-collapsed") === "true");
-  const permissionPrompted = useRef(false);
+  const permissionChecked = useRef(false);
 
   useEffect(() => {
     void startSelectionMonitor(settings).catch(() => undefined);
   }, [settings]);
 
   useEffect(() => {
-    if (!isTauri() || !settings.contextBarEnabled || permissionPrompted.current) return;
-    permissionPrompted.current = true;
-    void getPlatformStatus(false).then(async (status) => {
+    if (!isTauri() || !settings.contextBarEnabled || permissionChecked.current) return;
+    permissionChecked.current = true;
+    void getPlatformStatus().then((status) => {
       if (!status.supported || status.accessibilityTrusted) return;
-      await getPlatformStatus(true);
-      notify("Allow Latch Bar in Accessibility. It will start working without a restart.");
+      notify("Accessibility is not active for the running copy. Open Settings → Selection to enable or repair it.");
     }).catch(() => notify("Could not check Accessibility permission"));
   }, [notify, settings.contextBarEnabled]);
 

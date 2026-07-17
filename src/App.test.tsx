@@ -4,8 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { LatchProvider } from "./store/LatchStore";
 
+const openerMocks = vi.hoisted(() => ({ openUrl: vi.fn(async () => undefined) }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openerMocks.openUrl }));
+
 describe("Latch MVP", () => {
-  beforeEach(() => { localStorage.clear(); vi.useRealTimers(); });
+  beforeEach(() => { localStorage.clear(); openerMocks.openUrl.mockClear(); vi.useRealTimers(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
   it("creates an agent and opens the complete editor", async () => {
@@ -71,5 +74,28 @@ describe("Latch MVP", () => {
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(JSON.parse(localStorage.getItem("latch-bar-state-v1")!).settings.contextBarEnabled).toBe(true);
+  });
+
+  it("opens a native run conversation in the Codex app", async () => {
+    localStorage.setItem("latch-bar-state-v1", JSON.stringify({ runs: [{
+      id: "run-native",
+      agentId: "improve-writing",
+      agentName: "Improve writing",
+      agentIcon: "✦",
+      status: "completed",
+      sourceApplication: "TextEdit",
+      sourceIcon: "TE",
+      activity: "Result ready",
+      model: "Codex default",
+      sandbox: "read-only",
+      startedAt: "2026-07-17T10:00:00.000Z",
+      finalResponse: "Updated copy",
+      threadId: "019f-thread-123",
+    }] }));
+    const user = userEvent.setup();
+    render(<LatchProvider><App /></LatchProvider>);
+    await user.click(screen.getByRole("button", { name: "Runs" }));
+    await user.click(screen.getByRole("button", { name: "Open Improve writing conversation in Codex" }));
+    expect(openerMocks.openUrl).toHaveBeenCalledWith("codex://threads/019f-thread-123");
   });
 });

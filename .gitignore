@@ -18,6 +18,7 @@ src-tauri/gen/
 .env
 .env.*
 !.env.example
+*.certSigningRequest
 .DS_Store
 .idea/
 .vscode/

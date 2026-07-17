@@ -9,6 +9,7 @@ import "./styles.css";
 
 const contextWindow = isTauri() && getCurrentWindow().label === "context-bar";
 document.body.classList.toggle("context-window", contextWindow);
+document.documentElement.classList.toggle("context-window", contextWindow);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

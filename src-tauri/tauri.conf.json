@@ -7,6 +7,7 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "npm run build",
+    "beforeBundleCommand": "sh scripts/check-macos-release-signing.sh",
     "frontendDist": "../dist"
   },
   "app": {
@@ -36,6 +37,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "focusable": false,
+        "acceptFirstMouse": true,
+        "backgroundThrottling": "disabled",
         "visible": false,
         "shadow": false
       }

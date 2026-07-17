@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { emit, listen } from "@tauri-apps/api/event";
 import type { AppSettings, CodexAgent, CodexSkill, ContextBarState, McpServer, NavKey, Run, Workspace } from "../domain";
 import { seedAgents, seedMcps, seedRuns, seedSettings, seedSkills, seedWorkspaces } from "../data/seed";
-import { scanCodexEnvironment } from "../services/runtime";
+import { isTauri, scanCodexEnvironment } from "../services/runtime";
 
 interface Toast { id: number; message: string }
 
@@ -38,17 +39,28 @@ interface LatchState {
 
 const StoreContext = createContext<LatchState | null>(null);
 const STORAGE_KEY = "latch-bar-state-v1";
+const STATE_EVENT = "latch-state-changed";
+
+interface PersistedState {
+  agents?: CodexAgent[];
+  runs?: Run[];
+  settings?: AppSettings;
+}
+
+function normalizePersisted(parsed: PersistedState | null) {
+  if (!parsed) return null;
+  const legacySeedIds = new Set(["run-security", "run-writing", "run-error", "run-plan"]);
+  return {
+    ...parsed,
+    runs: parsed.runs?.filter((run) => !legacySeedIds.has(run.id) && run.sourceApplication !== "Selection preview" && !run.threadId?.startsWith("thr_preview_")),
+  };
+}
 
 function readPersisted() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { agents?: CodexAgent[]; runs?: Run[]; settings?: AppSettings };
-    const legacySeedIds = new Set(["run-security", "run-writing", "run-error", "run-plan"]);
-    return {
-      ...parsed,
-      runs: parsed.runs?.filter((run) => !legacySeedIds.has(run.id) && run.sourceApplication !== "Selection preview" && !run.threadId?.startsWith("thr_preview_")),
-    };
+    return normalizePersisted(JSON.parse(raw) as PersistedState);
   } catch {
     return null;
   }
@@ -78,23 +90,35 @@ export function LatchProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    const applySnapshot = (snapshot: PersistedState) => {
+      const next = normalizePersisted(snapshot);
+      if (!next) return;
+      if (next.agents) setAgents(next.agents);
+      if (next.runs) setRuns(next.runs);
+      if (next.settings) setSettings(next.settings);
+    };
     const syncWindowState = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY || !event.newValue) return;
       try {
-        const next = JSON.parse(event.newValue) as { agents?: CodexAgent[]; runs?: Run[]; settings?: AppSettings };
-        if (next.agents) setAgents(next.agents);
-        if (next.runs) setRuns(next.runs);
-        if (next.settings) setSettings(next.settings);
+        applySnapshot(JSON.parse(event.newValue) as PersistedState);
       } catch {
         // Ignore partial writes from an interrupted window shutdown.
       }
     };
     window.addEventListener("storage", syncWindowState);
-    return () => window.removeEventListener("storage", syncWindowState);
+    const unlisten = isTauri()
+      ? listen<PersistedState>(STATE_EVENT, ({ payload }) => applySnapshot(payload))
+      : null;
+    return () => {
+      window.removeEventListener("storage", syncWindowState);
+      if (unlisten) void unlisten.then((dispose) => dispose());
+    };
   }, []);
 
   const persist = useCallback((nextAgents: CodexAgent[], nextRuns: Run[], nextSettings: AppSettings) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ agents: nextAgents, runs: nextRuns, settings: nextSettings }));
+    const snapshot = { agents: nextAgents, runs: nextRuns, settings: nextSettings };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    if (isTauri()) void emit(STATE_EVENT, snapshot).catch(() => undefined);
   }, []);
 
   const notify = useCallback((message: string) => {

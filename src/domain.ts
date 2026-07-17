@@ -6,6 +6,12 @@ export type WorkspaceMode = "none" | "active-application" | "ask-each-time" | "f
 export type RunStatus = "running" | "approval" | "completed" | "failed" | "cancelled";
 export type ContextBarState = "idle" | "running" | "approval" | "result" | "error";
 
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+}
+
 export interface ContextPolicy {
   includeSelection: boolean;
   includeApplicationName: boolean;
@@ -100,6 +106,7 @@ export interface Run {
   finalResponse?: string;
   command?: string;
   threadId?: string;
+  conversation?: ConversationMessage[];
 }
 
 export interface AppSettings {
