@@ -20,7 +20,10 @@ impl PlatformAdapter for WindowsAdapter {
         }
     }
 
-    fn capture_selection(&self) -> Result<Option<NativeSelection>, String> {
+    fn capture_selection(
+        &self,
+        _excluded_applications: &[String],
+    ) -> Result<Option<NativeSelection>, String> {
         Err("Windows UI Automation selection capture is not implemented yet".into())
     }
 

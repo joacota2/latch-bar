@@ -33,6 +33,8 @@
 - [x] Generate the integration against locally installed Codex app-server types.
 - [x] Compile the native macOS application with the installed Rust toolchain.
 - [x] Implement macOS selection capture, selection bounds, secure-field exclusion, permission status, replacement, and paste fallback with AXUIElement/CoreGraphics.
+- [x] Add gesture-gated clipboard capture for custom editors with full pasteboard snapshot/conditional restore and transient-miss hysteresis.
+- [x] Keep the Context Bar inside visible work areas and full-screen Spaces without ordering Studio forward on overlay clicks.
 - [x] Keep the hidden Context Bar responsive, retry native selection delivery, and reject unsigned macOS release bundles.
 - [x] Add a cross-platform `PlatformAdapter` and an explicit Windows UI Automation module boundary.
 - [ ] Implement the Windows adapter with UI Automation and validate it on a Windows host.

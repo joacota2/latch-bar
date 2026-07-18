@@ -6,7 +6,13 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, State};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State};
+
+const CONTEXT_BAR_WIDTH: f64 = 780.0;
+const CONTEXT_BAR_COMPACT_HEIGHT: f64 = 76.0;
+const CONTEXT_BAR_MAX_HEIGHT: f64 = 360.0;
+const CONTEXT_BAR_MARGIN: f64 = 8.0;
+const CONTEXT_BAR_GAP: f64 = 10.0;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -54,7 +60,13 @@ pub struct ReplacementResult {
 
 pub trait PlatformAdapter: Send + Sync {
     fn status(&self, prompt: bool) -> PlatformStatus;
-    fn capture_selection(&self) -> Result<Option<NativeSelection>, String>;
+    fn start_selection_tracking(&self) -> Result<(), String> {
+        Ok(())
+    }
+    fn capture_selection(
+        &self,
+        excluded_applications: &[String],
+    ) -> Result<Option<NativeSelection>, String>;
     fn replace_selection(&self, text: &str) -> Result<ReplacementResult, String>;
     fn copy_text(&self, text: &str) -> Result<(), String>;
 }
@@ -64,6 +76,7 @@ pub struct PlatformState {
     adapter: Arc<Adapter>,
     monitor_started: AtomicBool,
     pointer_monitor_started: AtomicBool,
+    context_mouse_monitor_started: AtomicBool,
     context_bar_ready: Arc<AtomicBool>,
     overlay_pinned: Arc<AtomicBool>,
     dismiss_current_selection: Arc<AtomicBool>,
@@ -119,6 +132,82 @@ fn selection_key(selection: &NativeSelection) -> SelectionKey {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct LogicalRect {
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+}
+
+fn clamp_axis(value: f64, minimum: f64, maximum: f64) -> f64 {
+    if maximum < minimum {
+        minimum
+    } else {
+        value.clamp(minimum, maximum)
+    }
+}
+
+fn context_bar_position(
+    selection: &SelectionBounds,
+    work_area: LogicalRect,
+    width: f64,
+    height: f64,
+) -> LogicalPosition<f64> {
+    let minimum_x = work_area.left + CONTEXT_BAR_MARGIN;
+    let maximum_x = work_area.right - CONTEXT_BAR_MARGIN - width;
+    let x = clamp_axis(
+        selection.x + selection.width / 2.0 - width / 2.0,
+        minimum_x,
+        maximum_x,
+    );
+
+    let minimum_y = work_area.top + CONTEXT_BAR_MARGIN;
+    let maximum_y = work_area.bottom - CONTEXT_BAR_MARGIN - height;
+    let below = selection.y + selection.height + CONTEXT_BAR_GAP;
+    let above = selection.y - CONTEXT_BAR_GAP - height;
+    let preferred_y = if below <= maximum_y {
+        below
+    } else if above >= minimum_y {
+        above
+    } else {
+        below
+    };
+    let y = clamp_axis(preferred_y, minimum_y, maximum_y);
+    LogicalPosition::new(x, y)
+}
+
+fn clamp_context_bar_position(
+    position: LogicalPosition<f64>,
+    work_area: LogicalRect,
+    width: f64,
+    height: f64,
+) -> LogicalPosition<f64> {
+    LogicalPosition::new(
+        clamp_axis(
+            position.x,
+            work_area.left + CONTEXT_BAR_MARGIN,
+            work_area.right - CONTEXT_BAR_MARGIN - width,
+        ),
+        clamp_axis(
+            position.y,
+            work_area.top + CONTEXT_BAR_MARGIN,
+            work_area.bottom - CONTEXT_BAR_MARGIN - height,
+        ),
+    )
+}
+
+fn monitor_work_area(monitor: &tauri::Monitor) -> LogicalRect {
+    let scale = monitor.scale_factor();
+    let work_area = monitor.work_area();
+    LogicalRect {
+        left: work_area.position.x as f64 / scale,
+        top: work_area.position.y as f64 / scale,
+        right: (work_area.position.x as f64 + work_area.size.width as f64) / scale,
+        bottom: (work_area.position.y as f64 + work_area.size.height as f64) / scale,
+    }
+}
+
 #[tauri::command]
 pub fn platform_status(state: State<PlatformState>, prompt: bool) -> PlatformStatus {
     let mut status = state.adapter.status(prompt);
@@ -158,7 +247,11 @@ pub fn repair_accessibility_permission(
 pub fn context_bar_ready(app: AppHandle, state: State<PlatformState>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        use objc2_app_kit::NSWindow;
+        use block2::RcBlock;
+        use objc2_app_kit::{
+            NSApplication, NSEvent, NSEventMask, NSWindow, NSWindowCollectionBehavior,
+        };
+        use objc2_foundation::MainThreadMarker;
         let window = app
             .get_webview_window("context-bar")
             .ok_or("Context Bar window is unavailable")?;
@@ -173,6 +266,60 @@ pub fn context_bar_ready(app: AppHandle, state: State<PlatformState>) -> Result<
         // enable hit testing too so clicks cannot fall through to the Studio window below.
         native_window.setIgnoresMouseEvents(false);
         native_window.setAcceptsMouseMovedEvents(true);
+        native_window.setHidesOnDeactivate(false);
+
+        // This auxiliary window must accompany whichever application owns the active
+        // Space, including a native full-screen Space. Remove mutually exclusive flags
+        // before installing the desired behaviors.
+        let mut behavior = native_window.collectionBehavior();
+        behavior.remove(
+            NSWindowCollectionBehavior::MoveToActiveSpace
+                | NSWindowCollectionBehavior::FullScreenPrimary
+                | NSWindowCollectionBehavior::FullScreenNone,
+        );
+        behavior.insert(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+        native_window.setCollectionBehavior(behavior);
+
+        if !state
+            .context_mouse_monitor_started
+            .swap(true, Ordering::SeqCst)
+        {
+            let context_window_address = pointer as usize;
+            let block = RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+                // AppKit invokes local event monitors on the main thread.
+                let mtm = unsafe { MainThreadMarker::new_unchecked() };
+                let event_ref = unsafe { event.as_ref() };
+                let belongs_to_context_bar = event_ref.window(mtm).is_some_and(|window| {
+                    (&*window as *const NSWindow as usize) == context_window_address
+                });
+                if belongs_to_context_bar {
+                    // Suppress AppKit's normal mouse-down ordering. Without this, a
+                    // click on the non-focusable overlay activates Latch and raises
+                    // Studio. The redirect button still calls `open_studio` explicitly.
+                    NSApplication::sharedApplication(mtm).preventWindowOrdering();
+                }
+                event.as_ptr()
+            });
+            let monitor = unsafe {
+                NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                    NSEventMask::LeftMouseDown,
+                    &block,
+                )
+            };
+            let Some(monitor) = monitor else {
+                state
+                    .context_mouse_monitor_started
+                    .store(false, Ordering::SeqCst);
+                return Err("Could not install the Context Bar mouse monitor".into());
+            };
+            // AppKit owns the event monitor for the lifetime of the application. Keep
+            // its token alive so the monitor cannot be automatically removed.
+            std::mem::forget(monitor);
+        }
     }
     #[cfg(not(target_os = "macos"))]
     let _ = &app;
@@ -255,6 +402,13 @@ pub fn start_selection_monitor(
             let _ = window.hide();
         }
     }
+    if enabled {
+        // Gesture tracking is an enhancement to Accessibility capture. If macOS
+        // refuses the passive event tap, keep the AX-only monitor operational.
+        if let Err(error) = state.adapter.start_selection_tracking() {
+            eprintln!("Selection gesture tracking is unavailable: {error}");
+        }
+    }
     if state.monitor_started.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
@@ -268,6 +422,7 @@ pub fn start_selection_monitor(
         let mut candidate: Option<(SelectionKey, Instant)> = None;
         let mut last_emitted: Option<SelectionKey> = None;
         let mut dismissed: Option<SelectionKey> = None;
+        let mut missed_since: Option<Instant> = None;
         loop {
             std::thread::sleep(Duration::from_millis(120));
             let config = match monitor_config.lock() {
@@ -278,6 +433,7 @@ pub fn start_selection_monitor(
                 candidate = None;
                 last_emitted = None;
                 dismissed = None;
+                missed_since = None;
                 if let Some(window) = app.get_webview_window("context-bar") {
                     let _ = window.hide();
                 }
@@ -297,7 +453,7 @@ pub fn start_selection_monitor(
                 candidate = None;
             }
 
-            let selection = match adapter.capture_selection() {
+            let selection = match adapter.capture_selection(&config.excluded_applications) {
                 Ok(selection) => selection,
                 Err(error) => {
                     eprintln!("Native selection capture failed: {error}");
@@ -307,14 +463,21 @@ pub fn start_selection_monitor(
             .filter(|selection| selection_is_allowed(selection, &config));
 
             let Some(selection) = selection else {
+                let had_selection = candidate.is_some() || last_emitted.is_some();
+                let missed = missed_since.get_or_insert_with(Instant::now);
+                if had_selection && missed.elapsed() < Duration::from_millis(480) {
+                    continue;
+                }
                 candidate = None;
                 last_emitted = None;
                 dismissed = None;
+                missed_since = None;
                 if let Some(window) = app.get_webview_window("context-bar") {
                     let _ = window.hide();
                 }
                 continue;
             };
+            missed_since = None;
 
             let key = selection_key(&selection);
             if dismissed.as_ref() == Some(&key) {
@@ -337,39 +500,43 @@ pub fn start_selection_monitor(
             }
 
             let delivered = if let Some(window) = app.get_webview_window("context-bar") {
-                let mut x = (selection.bounds.x + selection.bounds.width / 2.0 - 390.0).max(8.0);
-                let mut y = (selection.bounds.y + selection.bounds.height + 10.0).max(8.0);
-                if let Ok(monitors) = window.available_monitors() {
-                    if let Some(monitor) = monitors.into_iter().find(|monitor| {
-                        let scale = monitor.scale_factor();
-                        let left = monitor.position().x as f64 / scale;
-                        let top = monitor.position().y as f64 / scale;
-                        let right = left + monitor.size().width as f64 / scale;
-                        let bottom = top + monitor.size().height as f64 / scale;
-                        selection.bounds.x >= left
-                            && selection.bounds.x <= right
-                            && selection.bounds.y >= top
-                            && selection.bounds.y <= bottom
-                    }) {
-                        let scale = monitor.scale_factor();
-                        let left = monitor.position().x as f64 / scale;
-                        let top = monitor.position().y as f64 / scale;
-                        let right = left + monitor.size().width as f64 / scale;
-                        let bottom = top + monitor.size().height as f64 / scale;
-                        x = x.clamp(left + 8.0, (right - 788.0).max(left + 8.0));
-                        if y + 76.0 > bottom - 8.0 {
-                            y = (selection.bounds.y - 86.0).max(top + 8.0);
-                        } else {
-                            y = y.max(top + 8.0);
-                        }
-                    }
-                }
-                let _ = window.set_position(LogicalPosition::new(x, y));
+                let monitor = window
+                    .monitor_from_point(
+                        selection.bounds.x + selection.bounds.width / 2.0,
+                        selection.bounds.y + selection.bounds.height / 2.0,
+                    )
+                    .ok()
+                    .flatten()
+                    .or_else(|| window.primary_monitor().ok().flatten());
+                let position = monitor
+                    .as_ref()
+                    .map(|monitor| {
+                        context_bar_position(
+                            &selection.bounds,
+                            monitor_work_area(monitor),
+                            CONTEXT_BAR_WIDTH,
+                            CONTEXT_BAR_COMPACT_HEIGHT,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        LogicalPosition::new(
+                            (selection.bounds.x + selection.bounds.width / 2.0
+                                - CONTEXT_BAR_WIDTH / 2.0)
+                                .max(CONTEXT_BAR_MARGIN),
+                            (selection.bounds.y + selection.bounds.height + CONTEXT_BAR_GAP)
+                                .max(CONTEXT_BAR_MARGIN),
+                        )
+                    });
                 // A hidden WKWebView may not execute injected event JavaScript until it is
                 // visible. Show it first, then emit, and only suppress retries after both
                 // operations succeed.
                 window
-                    .show()
+                    .set_size(LogicalSize::new(
+                        CONTEXT_BAR_WIDTH,
+                        CONTEXT_BAR_COMPACT_HEIGHT,
+                    ))
+                    .and_then(|_| window.set_position(position))
+                    .and_then(|_| window.show())
                     .and_then(|_| window.emit("native-selection", &selection))
                     .is_ok()
             } else {
@@ -405,29 +572,30 @@ pub fn resize_context_bar(app: AppHandle, height: f64) -> Result<(), String> {
     let window = app
         .get_webview_window("context-bar")
         .ok_or("Context Bar window is unavailable")?;
-    let height = height.clamp(76.0, 360.0);
+    let height = height.clamp(CONTEXT_BAR_COMPACT_HEIGHT, CONTEXT_BAR_MAX_HEIGHT);
     window
-        .set_size(LogicalSize::new(780.0, height))
+        .set_size(LogicalSize::new(CONTEXT_BAR_WIDTH, height))
         .map_err(|error| error.to_string())?;
 
-    // If the compact bar was placed above a bottom-edge selection, keep an expanded
-    // result on-screen instead of allowing it to grow past the monitor boundary.
-    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    // Re-clamp after every expansion so results, approvals, and the agent picker stay
+    // inside the visible work area rather than growing behind the Dock or menu bar.
     let position = window.outer_position().map_err(|error| error.to_string())?;
     if let Some(monitor) = window
         .current_monitor()
         .map_err(|error| error.to_string())?
     {
-        let monitor_bottom = monitor.position().y + monitor.size().height as i32;
-        let margin = (8.0 * scale).round() as i32;
-        let requested_bottom = position.y + (height * scale).round() as i32;
-        if requested_bottom > monitor_bottom - margin {
-            let y = (monitor_bottom - margin - (height * scale).round() as i32)
-                .max(monitor.position().y + margin);
-            window
-                .set_position(PhysicalPosition::new(position.x, y))
-                .map_err(|error| error.to_string())?;
-        }
+        let scale = monitor.scale_factor();
+        let logical_position =
+            LogicalPosition::new(position.x as f64 / scale, position.y as f64 / scale);
+        let clamped = clamp_context_bar_position(
+            logical_position,
+            monitor_work_area(&monitor),
+            CONTEXT_BAR_WIDTH,
+            height,
+        );
+        window
+            .set_position(clamped)
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -541,5 +709,78 @@ mod tests {
         second.bounds.y = 0.12;
 
         assert_eq!(selection_key(&first), selection_key(&second));
+    }
+
+    fn work_area() -> LogicalRect {
+        LogicalRect {
+            left: 0.0,
+            top: 0.0,
+            right: 1440.0,
+            bottom: 900.0,
+        }
+    }
+
+    #[test]
+    fn context_bar_flips_above_a_bottom_edge_selection() {
+        let bounds = SelectionBounds {
+            x: 700.0,
+            y: 860.0,
+            width: 40.0,
+            height: 20.0,
+        };
+
+        let position = context_bar_position(
+            &bounds,
+            work_area(),
+            CONTEXT_BAR_WIDTH,
+            CONTEXT_BAR_COMPACT_HEIGHT,
+        );
+
+        assert_eq!(position.y, 774.0);
+        assert!(position.y + CONTEXT_BAR_COMPACT_HEIGHT <= 892.0);
+    }
+
+    #[test]
+    fn context_bar_is_clamped_at_both_horizontal_edges() {
+        let mut bounds = SelectionBounds {
+            x: 0.0,
+            y: 100.0,
+            width: 20.0,
+            height: 20.0,
+        };
+        let left = context_bar_position(
+            &bounds,
+            work_area(),
+            CONTEXT_BAR_WIDTH,
+            CONTEXT_BAR_COMPACT_HEIGHT,
+        );
+        bounds.x = 1420.0;
+        let right = context_bar_position(
+            &bounds,
+            work_area(),
+            CONTEXT_BAR_WIDTH,
+            CONTEXT_BAR_COMPACT_HEIGHT,
+        );
+
+        assert_eq!(left.x, CONTEXT_BAR_MARGIN);
+        assert_eq!(right.x, 1440.0 - CONTEXT_BAR_MARGIN - CONTEXT_BAR_WIDTH);
+    }
+
+    #[test]
+    fn expanded_context_bar_stays_inside_the_visible_work_area() {
+        let clamped = clamp_context_bar_position(
+            LogicalPosition::new(900.0, 820.0),
+            LogicalRect {
+                left: 80.0,
+                top: 24.0,
+                right: 1440.0,
+                bottom: 900.0,
+            },
+            CONTEXT_BAR_WIDTH,
+            300.0,
+        );
+
+        assert_eq!(clamped.x, 652.0);
+        assert_eq!(clamped.y, 592.0);
     }
 }

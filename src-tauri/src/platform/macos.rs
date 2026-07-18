@@ -3,14 +3,36 @@ use core_foundation::{
     base::{CFGetTypeID, CFRelease, CFTypeRef, TCFType},
     boolean::CFBoolean,
     dictionary::CFDictionary,
+    runloop::CFRunLoop,
     string::{CFString, CFStringRef},
 };
 use core_graphics::{
-    event::{CGEvent, CGEventFlags, KeyCode},
+    event::{
+        CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
+        CGEventTapPlacement, CGEventType, CallbackResult, EventField, KeyCode,
+    },
     event_source::{CGEventSource, CGEventSourceStateID},
     geometry::CGRect,
 };
-use std::{ffi::c_void, ptr, sync::Mutex, time::Duration};
+use objc2::{rc::Retained, runtime::ProtocolObject};
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardTypeString, NSPasteboardWriting};
+use objc2_foundation::{NSArray, NSData, NSString};
+use std::{
+    ffi::c_void,
+    ptr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
+
+const GESTURE_FRESHNESS: Duration = Duration::from_millis(1_500);
+const FALLBACK_CACHE_LIFETIME: Duration = Duration::from_secs(300);
+const COPY_TIMEOUT: Duration = Duration::from_millis(450);
+const CLIPBOARD_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const MAX_CLIPBOARD_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
+const MINIMUM_DRAG_DISTANCE_SQUARED: f64 = 16.0;
 
 type AXUIElementRef = *const c_void;
 
@@ -72,11 +94,88 @@ impl Drop for SelectionTarget {
     }
 }
 
-#[derive(Default)]
 pub struct MacOsAdapter {
     target: Mutex<Option<SelectionTarget>>,
     fallback_bounds: Mutex<Option<(i32, String, SelectionBounds)>>,
     last_selection: Mutex<Option<NativeSelection>>,
+    fallback_selection: Mutex<Option<CachedFallbackSelection>>,
+    gesture_state: Arc<Mutex<GestureState>>,
+    processed_interaction: Mutex<u64>,
+    gesture_monitor_started: AtomicBool,
+}
+
+impl Default for MacOsAdapter {
+    fn default() -> Self {
+        Self {
+            target: Mutex::new(None),
+            fallback_bounds: Mutex::new(None),
+            last_selection: Mutex::new(None),
+            fallback_selection: Mutex::new(None),
+            gesture_state: Arc::new(Mutex::new(GestureState::default())),
+            processed_interaction: Mutex::new(0),
+            gesture_monitor_started: AtomicBool::new(false),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct CachedFallbackSelection {
+    selection: NativeSelection,
+    captured_at: Instant,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InteractionKind {
+    SelectionCandidate,
+    ClearSelection,
+}
+
+#[derive(Clone)]
+struct SelectionInteraction {
+    generation: u64,
+    occurred_at: Instant,
+    process_id: i32,
+    bounds: SelectionBounds,
+    kind: InteractionKind,
+}
+
+#[derive(Clone, Copy)]
+struct MouseDown {
+    x: f64,
+    y: f64,
+    process_id: i32,
+}
+
+#[derive(Default)]
+struct GestureState {
+    generation: u64,
+    mouse_down: Option<MouseDown>,
+    mouse_dragged: bool,
+    latest: Option<SelectionInteraction>,
+}
+
+impl GestureState {
+    fn record(&mut self, kind: InteractionKind, process_id: i32, bounds: SelectionBounds) {
+        self.generation = self.generation.wrapping_add(1).max(1);
+        self.latest = Some(SelectionInteraction {
+            generation: self.generation,
+            occurred_at: Instant::now(),
+            process_id,
+            bounds,
+            kind,
+        });
+    }
+}
+
+#[derive(Clone)]
+struct ClipboardEntry {
+    data_type: String,
+    data: Vec<u8>,
+}
+
+struct ClipboardSnapshot {
+    change_count: isize,
+    items: Vec<Vec<ClipboardEntry>>,
 }
 
 fn attribute(name: &str) -> CFString {
@@ -153,24 +252,33 @@ unsafe fn selected_text(element: AXUIElementRef) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-unsafe fn selected_element(mut element: AXUIElementRef) -> Option<(AXUIElementRef, String)> {
+enum SelectedElementResult {
+    Selection(AXUIElementRef, String),
+    Secure,
+    None,
+}
+
+unsafe fn selected_element(mut element: AXUIElementRef) -> SelectedElementResult {
     // Browsers and custom controls often keep keyboard focus on a descendant while
     // exposing the selection on a text/web-area ancestor.
     for _ in 0..32 {
         let subrole = copied_string(element, "AXSubrole").unwrap_or_default();
         if subrole == "AXSecureTextField" {
             CFRelease(element as CFTypeRef);
-            return None;
+            return SelectedElementResult::Secure;
         }
         if let Some(text) = selected_text(element) {
-            return Some((element, text));
+            return SelectedElementResult::Selection(element, text);
         }
         let parent = copied_value(element, "AXParent").map(|value| value as AXUIElementRef);
         CFRelease(element as CFTypeRef);
-        element = parent?;
+        let Some(parent) = parent else {
+            return SelectedElementResult::None;
+        };
+        element = parent;
     }
     CFRelease(element as CFTypeRef);
-    None
+    SelectedElementResult::None
 }
 
 unsafe fn selection_targets() -> Option<(Vec<AXUIElementRef>, i32)> {
@@ -252,7 +360,7 @@ unsafe fn selection_targets() -> Option<(Vec<AXUIElementRef>, i32)> {
     if let Some(hit_tested) = hit_tested {
         targets.push(hit_tested);
     }
-    (!targets.is_empty() && process_id > 0).then_some((targets, process_id))
+    (process_id > 0).then_some((targets, process_id))
 }
 
 unsafe fn process_name(pid: i32) -> String {
@@ -330,7 +438,441 @@ fn cursor_bounds() -> Option<SelectionBounds> {
     })
 }
 
+fn event_process_id(event: &CGEvent) -> i32 {
+    event
+        .get_integer_value_field(EventField::EVENT_TARGET_UNIX_PROCESS_ID)
+        .try_into()
+        .unwrap_or_default()
+}
+
+fn is_modifier_key(key_code: u16) -> bool {
+    matches!(
+        key_code,
+        KeyCode::COMMAND
+            | KeyCode::RIGHT_COMMAND
+            | KeyCode::SHIFT
+            | KeyCode::RIGHT_SHIFT
+            | KeyCode::OPTION
+            | KeyCode::RIGHT_OPTION
+            | KeyCode::CONTROL
+            | KeyCode::RIGHT_CONTROL
+            | KeyCode::CAPS_LOCK
+            | KeyCode::FUNCTION
+    )
+}
+
+fn keyboard_interaction_kind(key_code: u16, flags: CGEventFlags) -> Option<InteractionKind> {
+    let command = flags.contains(CGEventFlags::CGEventFlagCommand);
+    let shift = flags.contains(CGEventFlags::CGEventFlagShift);
+    let control = flags.contains(CGEventFlags::CGEventFlagControl);
+    let navigation = matches!(
+        key_code,
+        KeyCode::LEFT_ARROW
+            | KeyCode::RIGHT_ARROW
+            | KeyCode::UP_ARROW
+            | KeyCode::DOWN_ARROW
+            | KeyCode::HOME
+            | KeyCode::END
+            | KeyCode::PAGE_UP
+            | KeyCode::PAGE_DOWN
+    );
+
+    if (command && key_code == KeyCode::ANSI_A) || (shift && navigation) {
+        Some(InteractionKind::SelectionCandidate)
+    } else if navigation
+        || key_code == KeyCode::ESCAPE
+        || (!command && !control && !is_modifier_key(key_code))
+    {
+        // Navigation without Shift and ordinary typing normally collapse a selection.
+        Some(InteractionKind::ClearSelection)
+    } else {
+        // Command shortcuts (including the synthetic Cmd+C below) do not change the
+        // gesture state. This also prevents the fallback from triggering itself.
+        None
+    }
+}
+
+fn mouse_interaction_kind(
+    distance_squared: f64,
+    saw_drag_event: bool,
+    click_count: i64,
+    shift_click: bool,
+) -> InteractionKind {
+    if saw_drag_event
+        || distance_squared >= MINIMUM_DRAG_DISTANCE_SQUARED
+        || click_count >= 2
+        || shift_click
+    {
+        InteractionKind::SelectionCandidate
+    } else {
+        InteractionKind::ClearSelection
+    }
+}
+
+fn record_mouse_event(state: &Arc<Mutex<GestureState>>, event_type: CGEventType, event: &CGEvent) {
+    let point = event.location();
+    let process_id = event_process_id(event);
+    let Ok(mut state) = state.lock() else {
+        return;
+    };
+    match event_type {
+        CGEventType::LeftMouseDown => {
+            state.mouse_dragged = false;
+            state.mouse_down = Some(MouseDown {
+                x: point.x,
+                y: point.y,
+                process_id,
+            });
+            return;
+        }
+        CGEventType::LeftMouseDragged => {
+            state.mouse_dragged = true;
+            return;
+        }
+        CGEventType::LeftMouseUp => {}
+        _ => return,
+    }
+
+    let Some(down) = state.mouse_down.take() else {
+        return;
+    };
+    let dx = point.x - down.x;
+    let dy = point.y - down.y;
+    let click_count = event.get_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE);
+    let saw_drag_event = state.mouse_dragged;
+    state.mouse_dragged = false;
+    let shift_click = event.get_flags().contains(CGEventFlags::CGEventFlagShift);
+    let kind = mouse_interaction_kind(dx * dx + dy * dy, saw_drag_event, click_count, shift_click);
+    state.record(
+        kind,
+        if process_id > 0 {
+            process_id
+        } else {
+            down.process_id
+        },
+        SelectionBounds {
+            x: point.x,
+            y: point.y,
+            width: 1.0,
+            height: 18.0,
+        },
+    );
+}
+
+fn record_keyboard_event(state: &Arc<Mutex<GestureState>>, event: &CGEvent) {
+    let key_code = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
+    let Some(kind) = keyboard_interaction_kind(key_code, event.get_flags()) else {
+        return;
+    };
+    let bounds = cursor_bounds().unwrap_or(SelectionBounds {
+        x: 8.0,
+        y: 8.0,
+        width: 1.0,
+        height: 18.0,
+    });
+    if let Ok(mut state) = state.lock() {
+        state.record(kind, event_process_id(event), bounds);
+    }
+}
+
+impl ClipboardSnapshot {
+    fn capture() -> Result<Self, String> {
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let change_count = pasteboard.changeCount();
+        let mut snapshot = Self {
+            change_count,
+            items: Vec::new(),
+        };
+        let mut total_bytes = 0usize;
+
+        if let Some(items) = pasteboard.pasteboardItems() {
+            for item in items.iter() {
+                let mut entries = Vec::new();
+                for data_type in item.types().iter() {
+                    let data = item.dataForType(&data_type).ok_or_else(|| {
+                        format!("Clipboard type {data_type} could not be materialized")
+                    })?;
+                    total_bytes = total_bytes
+                        .checked_add(data.len())
+                        .ok_or("Clipboard snapshot is too large")?;
+                    if total_bytes > MAX_CLIPBOARD_SNAPSHOT_BYTES {
+                        return Err(format!(
+                            "Clipboard exceeds the {} MiB safe snapshot limit",
+                            MAX_CLIPBOARD_SNAPSHOT_BYTES / 1024 / 1024
+                        ));
+                    }
+                    entries.push(ClipboardEntry {
+                        data_type: data_type.to_string(),
+                        data: data.to_vec(),
+                    });
+                }
+                if entries.is_empty() {
+                    return Err("Clipboard contains an item with no restorable data types".into());
+                }
+                snapshot.items.push(entries);
+            }
+        }
+
+        if pasteboard.changeCount() != change_count {
+            return Err("Clipboard changed while it was being snapshotted".into());
+        }
+        Ok(snapshot)
+    }
+
+    fn restore_if_unchanged(&self, expected_change_count: isize) -> Result<bool, String> {
+        let pasteboard = NSPasteboard::generalPasteboard();
+        if pasteboard.changeCount() != expected_change_count {
+            return Ok(false);
+        }
+
+        let mut writers: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> = Vec::new();
+        for entries in &self.items {
+            let item = NSPasteboardItem::new();
+            for entry in entries {
+                let data_type = NSString::from_str(&entry.data_type);
+                let data = NSData::with_bytes(&entry.data);
+                if !item.setData_forType(&data, &data_type) {
+                    return Err(format!(
+                        "Could not reconstruct clipboard type {}",
+                        entry.data_type
+                    ));
+                }
+            }
+            writers.push(ProtocolObject::from_retained(item));
+        }
+        let objects = NSArray::from_retained_slice(&writers);
+
+        // This second check narrows the only unavoidable race: NSPasteboard does not
+        // provide an atomic compare-and-swap operation for clipboard owners.
+        if pasteboard.changeCount() != expected_change_count {
+            return Ok(false);
+        }
+        pasteboard.clearContents();
+        if !writers.is_empty() && !pasteboard.writeObjects(&objects) {
+            return Err("Could not restore the previous clipboard contents".into());
+        }
+        Ok(true)
+    }
+}
+
+fn post_copy_shortcut(process_id: i32) -> Result<(), String> {
+    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+        .map_err(|_| "Could not create a keyboard event source")?;
+    let down = CGEvent::new_keyboard_event(source.clone(), KeyCode::ANSI_C, true)
+        .map_err(|_| "Could not create the copy key-down event")?;
+    let up = CGEvent::new_keyboard_event(source, KeyCode::ANSI_C, false)
+        .map_err(|_| "Could not create the copy key-up event")?;
+    down.set_flags(CGEventFlags::CGEventFlagCommand);
+    up.set_flags(CGEventFlags::CGEventFlagCommand);
+    down.post_to_pid(process_id);
+    std::thread::sleep(Duration::from_millis(20));
+    up.post_to_pid(process_id);
+    Ok(())
+}
+
+fn capture_via_clipboard(process_id: i32) -> Result<Option<String>, String> {
+    let snapshot = ClipboardSnapshot::capture()?;
+    let pasteboard = NSPasteboard::generalPasteboard();
+    if pasteboard.changeCount() != snapshot.change_count {
+        return Ok(None);
+    }
+    post_copy_shortcut(process_id)?;
+
+    let started = Instant::now();
+    let mut captured_change_count = None;
+    let mut captured_text = None;
+    while started.elapsed() < COPY_TIMEOUT {
+        let current = pasteboard.changeCount();
+        match captured_change_count {
+            None if current != snapshot.change_count => captured_change_count = Some(current),
+            Some(first_change) if current != first_change => {
+                // Another clipboard owner wrote during the transaction. Never overwrite it,
+                // and do not mistake that unrelated content for the selected text.
+                return Ok(None);
+            }
+            _ => {}
+        }
+
+        if captured_change_count.is_some() {
+            captured_text = pasteboard
+                .stringForType(unsafe { NSPasteboardTypeString })
+                .map(|value| value.to_string())
+                .filter(|value| !value.is_empty());
+            if captured_text.is_some() {
+                break;
+            }
+        }
+        std::thread::sleep(CLIPBOARD_POLL_INTERVAL);
+    }
+
+    if let Some(change_count) = captured_change_count {
+        if let Err(error) = snapshot.restore_if_unchanged(change_count) {
+            eprintln!("Could not restore clipboard after selection capture: {error}");
+        }
+    }
+    Ok(captured_text)
+}
+
 impl MacOsAdapter {
+    fn start_gesture_monitor(&self) -> Result<(), String> {
+        if self.gesture_monitor_started.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        let gesture_state = self.gesture_state.clone();
+        let (sender, receiver) = mpsc::sync_channel::<Result<(), String>>(1);
+        std::thread::spawn(move || {
+            let failure_sender = sender.clone();
+            let ready_sender = sender.clone();
+            let callback_state = gesture_state.clone();
+            let installed = CGEventTap::with_enabled(
+                CGEventTapLocation::Session,
+                CGEventTapPlacement::TailAppendEventTap,
+                CGEventTapOptions::ListenOnly,
+                vec![
+                    CGEventType::LeftMouseDown,
+                    CGEventType::LeftMouseUp,
+                    CGEventType::LeftMouseDragged,
+                    CGEventType::KeyUp,
+                ],
+                move |_proxy, event_type, event| {
+                    let process_id = event_process_id(event);
+                    if process_id == std::process::id() as i32 {
+                        if matches!(
+                            event_type,
+                            CGEventType::LeftMouseDown
+                                | CGEventType::LeftMouseUp
+                                | CGEventType::LeftMouseDragged
+                        ) {
+                            if let Ok(mut state) = callback_state.lock() {
+                                state.mouse_down = None;
+                                state.mouse_dragged = false;
+                            }
+                        }
+                        return CallbackResult::Keep;
+                    }
+                    match event_type {
+                        CGEventType::LeftMouseDown
+                        | CGEventType::LeftMouseUp
+                        | CGEventType::LeftMouseDragged => {
+                            record_mouse_event(&callback_state, event_type, event)
+                        }
+                        CGEventType::KeyUp => record_keyboard_event(&callback_state, event),
+                        _ => {}
+                    }
+                    CallbackResult::Keep
+                },
+                move || {
+                    let _ = ready_sender.send(Ok(()));
+                    CFRunLoop::run_current();
+                },
+            );
+            if installed.is_err() {
+                let _ = failure_sender.send(Err(
+                    "macOS declined the passive keyboard and pointer event tap".into(),
+                ));
+            }
+        });
+
+        match receiver.recv_timeout(Duration::from_secs(1)) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => {
+                self.gesture_monitor_started.store(false, Ordering::SeqCst);
+                Err(error)
+            }
+            Err(_) => {
+                self.gesture_monitor_started.store(false, Ordering::SeqCst);
+                Err("Timed out while starting the selection gesture monitor".into())
+            }
+        }
+    }
+
+    fn latest_interaction(&self) -> Result<Option<SelectionInteraction>, String> {
+        self.gesture_state
+            .lock()
+            .map(|state| state.latest.clone())
+            .map_err(|_| "Selection gesture state is unavailable".into())
+    }
+
+    fn consume_interaction(
+        &self,
+        interaction: Option<SelectionInteraction>,
+    ) -> Result<Option<SelectionInteraction>, String> {
+        let Some(interaction) = interaction else {
+            return Ok(None);
+        };
+        let mut processed = self
+            .processed_interaction
+            .lock()
+            .map_err(|_| "Selection gesture state is unavailable")?;
+        if interaction.generation <= *processed {
+            return Ok(None);
+        }
+        *processed = interaction.generation;
+        Ok(Some(interaction))
+    }
+
+    fn mark_interaction_processed(
+        &self,
+        interaction: Option<&SelectionInteraction>,
+    ) -> Result<(), String> {
+        let Some(interaction) = interaction else {
+            return Ok(());
+        };
+        let mut processed = self
+            .processed_interaction
+            .lock()
+            .map_err(|_| "Selection gesture state is unavailable")?;
+        *processed = (*processed).max(interaction.generation);
+        Ok(())
+    }
+
+    fn clear_selection_state(&self) {
+        if let Ok(mut value) = self.fallback_bounds.lock() {
+            *value = None;
+        }
+        if let Ok(mut value) = self.fallback_selection.lock() {
+            *value = None;
+        }
+        if let Ok(mut value) = self.last_selection.lock() {
+            *value = None;
+        }
+        if let Ok(mut value) = self.target.lock() {
+            *value = None;
+        }
+    }
+
+    fn clear_if_process_changed(&self, process_id: i32) {
+        let changed = self
+            .last_selection
+            .lock()
+            .ok()
+            .and_then(|selection| {
+                selection
+                    .as_ref()
+                    .map(|value| value.process_id != process_id)
+            })
+            .unwrap_or(false);
+        if changed {
+            self.clear_selection_state();
+        }
+    }
+
+    fn cached_fallback(&self, process_id: i32) -> Result<Option<NativeSelection>, String> {
+        let mut cached = self
+            .fallback_selection
+            .lock()
+            .map_err(|_| "Fallback selection cache is unavailable")?;
+        let valid = cached.as_ref().is_some_and(|value| {
+            value.selection.process_id == process_id
+                && value.captured_at.elapsed() < FALLBACK_CACHE_LIFETIME
+        });
+        if !valid {
+            *cached = None;
+        }
+        Ok(cached.as_ref().map(|value| value.selection.clone()))
+    }
+
     fn paste_to_target(&self, text: &str, process_id: i32) -> Result<ReplacementResult, String> {
         self.copy_text(text)?;
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
@@ -351,6 +893,10 @@ impl MacOsAdapter {
 }
 
 impl PlatformAdapter for MacOsAdapter {
+    fn start_selection_tracking(&self) -> Result<(), String> {
+        self.start_gesture_monitor()
+    }
+
     fn status(&self, prompt: bool) -> PlatformStatus {
         let trusted = unsafe {
             if prompt {
@@ -366,13 +912,16 @@ impl PlatformAdapter for MacOsAdapter {
             supported: true,
             accessibility_trusted: trusted,
             permission_required: (!trusted).then_some("accessibility"),
-            implementation: "axuielement",
+            implementation: "axuielement+guarded-clipboard",
             monitor_running: false,
             context_bar_ready: false,
         }
     }
 
-    fn capture_selection(&self) -> Result<Option<NativeSelection>, String> {
+    fn capture_selection(
+        &self,
+        excluded_applications: &[String],
+    ) -> Result<Option<NativeSelection>, String> {
         if !unsafe { AXIsProcessTrusted() } {
             return Ok(None);
         }
@@ -390,26 +939,112 @@ impl PlatformAdapter for MacOsAdapter {
                     .map(|selection| selection.clone())
                     .map_err(|_| "Last selection state is unavailable".into());
             }
+            self.clear_if_process_changed(process_id);
+            let application = process_name(process_id);
+            if excluded_applications
+                .iter()
+                .any(|excluded| application.eq_ignore_ascii_case(excluded))
+            {
+                for target in targets {
+                    CFRelease(target as CFTypeRef);
+                }
+                self.clear_selection_state();
+                return Ok(None);
+            }
+
+            let interaction = self.latest_interaction()?;
+            let title = targets.iter().find_map(|target| window_title(*target));
             let mut targets = targets.into_iter();
             let mut selected = None;
+            let mut secure = false;
             while let Some(target) = targets.next() {
-                if let Some(selection) = selected_element(target) {
-                    selected = Some(selection);
-                    for unused in targets {
-                        CFRelease(unused as CFTypeRef);
+                match selected_element(target) {
+                    SelectedElementResult::Selection(element, text) => {
+                        selected = Some((element, text));
+                        for unused in targets {
+                            CFRelease(unused as CFTypeRef);
+                        }
+                        break;
                     }
-                    break;
+                    SelectedElementResult::Secure => {
+                        secure = true;
+                        for unused in targets {
+                            CFRelease(unused as CFTypeRef);
+                        }
+                        break;
+                    }
+                    SelectedElementResult::None => {}
                 }
             }
-            let Some((focused, text)) = selected else {
-                if let Ok(mut cached) = self.fallback_bounds.lock() {
-                    *cached = None;
-                }
-                if let Ok(mut selection) = self.last_selection.lock() {
-                    *selection = None;
-                }
+            if secure {
+                self.mark_interaction_processed(interaction.as_ref())?;
+                self.clear_selection_state();
                 return Ok(None);
-            };
+            }
+
+            if selected.is_none() {
+                let Some(interaction) = self.consume_interaction(interaction)? else {
+                    return self.cached_fallback(process_id);
+                };
+                if interaction.kind == InteractionKind::ClearSelection
+                    || interaction.occurred_at.elapsed() > GESTURE_FRESHNESS
+                    || (interaction.process_id > 0 && interaction.process_id != process_id)
+                {
+                    self.clear_selection_state();
+                    return Ok(None);
+                }
+
+                let text = match capture_via_clipboard(process_id) {
+                    Ok(Some(text)) => text,
+                    Ok(None) => {
+                        self.clear_selection_state();
+                        return Ok(None);
+                    }
+                    Err(error) => {
+                        // A failed snapshot is deliberately non-destructive: no Cmd+C is
+                        // sent unless the old pasteboard can be reconstructed first.
+                        eprintln!("Guarded clipboard selection capture skipped: {error}");
+                        self.clear_selection_state();
+                        return Ok(None);
+                    }
+                };
+                let application_element = AXUIElementCreateApplication(process_id);
+                if !application_element.is_null() {
+                    *self
+                        .target
+                        .lock()
+                        .map_err(|_| "Selection target is unavailable")? = Some(SelectionTarget {
+                        element: application_element,
+                        process_id,
+                    });
+                }
+                let selection = NativeSelection {
+                    text,
+                    application,
+                    window_title: title,
+                    process_id,
+                    bounds: interaction.bounds,
+                };
+                *self
+                    .fallback_selection
+                    .lock()
+                    .map_err(|_| "Fallback selection cache is unavailable")? =
+                    Some(CachedFallbackSelection {
+                        selection: selection.clone(),
+                        captured_at: Instant::now(),
+                    });
+                *self
+                    .last_selection
+                    .lock()
+                    .map_err(|_| "Last selection state is unavailable")? = Some(selection.clone());
+                return Ok(Some(selection));
+            }
+
+            self.mark_interaction_processed(interaction.as_ref())?;
+            if let Ok(mut cached) = self.fallback_selection.lock() {
+                *cached = None;
+            }
+            let (focused, text) = selected.expect("selection checked above");
             // Some WebKit/Electron controls expose AXSelectedText but not AXBoundsForRange.
             // Cache the pointer fallback for this selection so clicking the Context Bar does
             // not make the unchanged selection look new just because the pointer moved.
@@ -447,8 +1082,6 @@ impl PlatformAdapter for MacOsAdapter {
                     bounds
                 }
             };
-            let application = process_name(process_id);
-            let title = window_title(focused);
             *self
                 .target
                 .lock()
@@ -510,5 +1143,80 @@ impl PlatformAdapter for MacOsAdapter {
     fn copy_text(&self, text: &str) -> Result<(), String> {
         let mut clipboard = arboard::Clipboard::new().map_err(|error| error.to_string())?;
         clipboard.set_text(text).map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_a_and_shift_navigation_arm_selection_capture() {
+        assert_eq!(
+            keyboard_interaction_kind(KeyCode::ANSI_A, CGEventFlags::CGEventFlagCommand),
+            Some(InteractionKind::SelectionCandidate)
+        );
+        assert_eq!(
+            keyboard_interaction_kind(KeyCode::RIGHT_ARROW, CGEventFlags::CGEventFlagShift),
+            Some(InteractionKind::SelectionCandidate)
+        );
+    }
+
+    #[test]
+    fn copy_shortcuts_do_not_rearm_the_fallback() {
+        assert_eq!(
+            keyboard_interaction_kind(KeyCode::ANSI_C, CGEventFlags::CGEventFlagCommand),
+            None
+        );
+        assert_eq!(
+            keyboard_interaction_kind(KeyCode::ANSI_C, CGEventFlags::empty()),
+            Some(InteractionKind::ClearSelection)
+        );
+    }
+
+    #[test]
+    fn mouse_drag_double_click_and_shift_click_are_selection_candidates() {
+        assert_eq!(
+            mouse_interaction_kind(0.0, true, 1, false),
+            InteractionKind::SelectionCandidate
+        );
+        assert_eq!(
+            mouse_interaction_kind(0.0, false, 2, false),
+            InteractionKind::SelectionCandidate
+        );
+        assert_eq!(
+            mouse_interaction_kind(0.0, false, 1, true),
+            InteractionKind::SelectionCandidate
+        );
+        assert_eq!(
+            mouse_interaction_kind(0.0, false, 1, false),
+            InteractionKind::ClearSelection
+        );
+    }
+
+    #[test]
+    fn an_interaction_is_consumed_only_once() {
+        let adapter = MacOsAdapter::default();
+        let interaction = SelectionInteraction {
+            generation: 7,
+            occurred_at: Instant::now(),
+            process_id: 42,
+            bounds: SelectionBounds {
+                x: 1.0,
+                y: 2.0,
+                width: 1.0,
+                height: 18.0,
+            },
+            kind: InteractionKind::SelectionCandidate,
+        };
+
+        assert!(adapter
+            .consume_interaction(Some(interaction.clone()))
+            .unwrap()
+            .is_some());
+        assert!(adapter
+            .consume_interaction(Some(interaction))
+            .unwrap()
+            .is_none());
     }
 }

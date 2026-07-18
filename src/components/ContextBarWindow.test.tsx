@@ -184,6 +184,7 @@ describe("Context Bar lifecycle", () => {
     const picker = screen.getByRole("menu", { name: "All agents" });
     expect(within(picker).getByRole("button", { name: "Run Plan implementation" })).toBeInTheDocument();
     expect(mocks.openStudio).not.toHaveBeenCalled();
+    expect(mocks.focusSelectionApplication).not.toHaveBeenCalled();
 
     const translateButton = within(picker).getByRole("button", { name: "Run Translate to English" });
     await user.hover(translateButton);

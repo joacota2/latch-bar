@@ -15,7 +15,10 @@ impl PlatformAdapter for UnsupportedAdapter {
             context_bar_ready: false,
         }
     }
-    fn capture_selection(&self) -> Result<Option<NativeSelection>, String> {
+    fn capture_selection(
+        &self,
+        _excluded_applications: &[String],
+    ) -> Result<Option<NativeSelection>, String> {
         Ok(None)
     }
     fn replace_selection(&self, _text: &str) -> Result<ReplacementResult, String> {

@@ -349,10 +349,6 @@ export function ContextBarWindow() {
     const opening = !showAll;
     setShowAll(opening);
     await setOverlayPinned(opening);
-    if (opening) {
-      const source = selectionRef.current ?? selection;
-      if (source) await focusSelectionApplication(source.processId).catch(() => undefined);
-    }
   };
 
   const closeAgentPicker = async () => {

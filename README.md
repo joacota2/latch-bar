@@ -6,8 +6,8 @@ Latch Bar is a contextual desktop surface for the Codex installation already on 
 
 - A polished Codex Studio with Agents, Runs, MCPs, Skills, Workspaces, and Settings.
 - Full agent CRUD and configuration for prompt, runtime, sandbox, approvals, workspace, context, tools, Skills, and output.
-- A separate always-on-top Context Bar window driven by real macOS text selections.
-- Native Accessibility capture, secure-field exclusion, bounds positioning, direct replacement, and clipboard-paste fallback.
+- A separate non-activating, always-on-top Context Bar window driven by real macOS text selections, including full-screen Spaces.
+- Native Accessibility capture with a gesture-gated clipboard fallback for custom editors, secure-field exclusion, bounds positioning, direct replacement, and clipboard-paste replacement.
 - Persistent local agents, settings, and real run history (no seeded or simulated runs).
 - A Tauri 2 shell with Codex status, MCP/Skill discovery, and a supervised `codex app-server` JSONL client with streaming, approvals, cancellation, and shutdown.
 - A platform-adapter boundary with the Windows UI Automation module isolated for the next implementation.
@@ -37,7 +37,7 @@ rustup update stable
 npm run tauri dev
 ```
 
-On first launch, open **Settings → Selection → Enable Accessibility** and allow Latch Bar under **System Settings → Privacy & Security → Accessibility**. Latch checks the permission silently on startup and prompts only after an explicit enable action. Select at least three characters in another application; the native Context Bar appears beside the selected range. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** writes through Accessibility and falls back to a targeted Command-V paste when the source control does not expose direct replacement.
+On first launch, open **Settings → Selection → Enable Accessibility** and allow Latch Bar under **System Settings → Privacy & Security → Accessibility**. Latch checks the permission silently on startup and prompts only after an explicit enable action. Select at least three characters in another application; the native Context Bar appears beside the selected range. When a custom editor does not expose its selected text through Accessibility, Latch can issue a targeted Command-C after a selection gesture. It snapshots the existing pasteboard first and restores it immediately only if no newer clipboard owner has written. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** writes through Accessibility and falls back to a targeted Command-V paste when the source control does not expose direct replacement.
 
 macOS records privacy permissions against the app's code-signing identity. Ad-hoc builds are identified by a code hash, so rebuilding them invalidates an apparently enabled Accessibility entry. Persistent installed builds must therefore use an Apple signing identity:
 
@@ -75,6 +75,8 @@ The runtime protocol follows the current [Codex app-server documentation](https:
 - MCP credentials are never copied; profiles store only server IDs.
 - Selected text is escaped and placed in a delimited data block with explicit runtime rules.
 - Selected source text is not stored by default.
+- Clipboard capture is attempted only after a selection-shaped gesture; the previous pasteboard is restored immediately when its ownership generation is still unchanged.
+- Context Bar clicks do not order Studio forward; only the explicit redirect opens and focuses Studio. The bar is clamped to the visible work area as it opens and expands.
 - Screenshot context is off by default.
 - Password managers and secure fields are excluded from contextual capture.
 
