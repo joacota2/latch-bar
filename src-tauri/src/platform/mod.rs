@@ -230,6 +230,105 @@ fn context_bar_collection_behavior(
     behavior
 }
 
+#[cfg(target_os = "macos")]
+extern "C" fn context_panel_is_focusable(
+    object: &objc2::runtime::AnyObject,
+    _: objc2::runtime::Sel,
+) -> objc2::runtime::Bool {
+    // Preserve Tao's `focusable` ivar contract so `WebviewWindow::set_focusable`
+    // continues to work after the native window becomes an NSPanel.
+    #[allow(deprecated)]
+    unsafe {
+        *object.get_ivar("focusable")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn context_panel_class() -> &'static objc2::runtime::AnyClass {
+    use objc2::{
+        class,
+        runtime::{AnyClass, Bool, ClassBuilder},
+        sel,
+    };
+    use std::{ffi::CStr, sync::OnceLock};
+
+    static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
+    CLASS.get_or_init(|| {
+        let mut builder = ClassBuilder::new(
+            CStr::from_bytes_with_nul(b"LatchContextPanel\0").expect("static class name"),
+            class!(NSPanel),
+        )
+        .expect("LatchContextPanel must only be registered once");
+        unsafe {
+            builder.add_method(
+                sel!(canBecomeMainWindow),
+                context_panel_is_focusable as extern "C" fn(_, _) -> _,
+            );
+            builder.add_method(
+                sel!(canBecomeKeyWindow),
+                context_panel_is_focusable as extern "C" fn(_, _) -> _,
+            );
+        }
+        builder
+            .add_ivar::<Bool>(CStr::from_bytes_with_nul(b"focusable\0").expect("static ivar name"));
+        builder.register()
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn panelize_context_bar(pointer: *mut std::ffi::c_void) -> Result<(), String> {
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    unsafe extern "C" {
+        fn object_setClass(object: *mut AnyObject, class: *const AnyClass) -> *const AnyClass;
+    }
+
+    let object = unsafe {
+        (pointer as *mut AnyObject)
+            .as_mut()
+            .ok_or("Context Bar native object is unavailable")?
+    };
+    let panel_class = context_panel_class();
+    let current_class = object.class();
+    if current_class == panel_class {
+        return Ok(());
+    }
+    if current_class.instance_size() != panel_class.instance_size() {
+        return Err(format!(
+            "Cannot convert {} ({} bytes) to {} ({} bytes)",
+            current_class.name().to_string_lossy(),
+            current_class.instance_size(),
+            panel_class.name().to_string_lossy(),
+            panel_class.instance_size()
+        ));
+    }
+    let focusable_name =
+        std::ffi::CStr::from_bytes_with_nul(b"focusable\0").expect("static ivar name");
+    let current_focusable = current_class
+        .instance_variable(focusable_name)
+        .ok_or("The native Context Bar class has no focusable state")?;
+    let panel_focusable = panel_class
+        .instance_variable(focusable_name)
+        .ok_or("The Context Bar panel class has no focusable state")?;
+    if current_focusable.offset() != panel_focusable.offset() {
+        return Err(format!(
+            "Cannot preserve Context Bar focusability (ivar offsets {} and {} differ)",
+            current_focusable.offset(),
+            panel_focusable.offset()
+        ));
+    }
+
+    // Tao allocates its NSWindow subclass with one `focusable` BOOL ivar. Our
+    // NSPanel subclass has the same instance size and ivar layout, allowing the
+    // webview and delegate to remain attached while AppKit treats this one window
+    // as a full-screen-eligible panel. Studio remains an ordinary NSWindow.
+    let previous = unsafe { object_setClass(object, panel_class) };
+    if !std::ptr::eq(previous, current_class) {
+        return Err("Context Bar native class changed concurrently".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn platform_status(state: State<PlatformState>, prompt: bool) -> PlatformStatus {
     let mut status = state.adapter.status(prompt);
@@ -270,12 +369,13 @@ pub fn context_bar_ready(app: AppHandle, state: State<PlatformState>) -> Result<
     #[cfg(target_os = "macos")]
     {
         use block2::RcBlock;
-        use objc2_app_kit::{NSApplication, NSEvent, NSEventMask, NSWindow};
+        use objc2_app_kit::{NSApplication, NSEvent, NSEventMask, NSWindow, NSWindowStyleMask};
         use objc2_foundation::MainThreadMarker;
         let window = app
             .get_webview_window("context-bar")
             .ok_or("Context Bar window is unavailable")?;
         let pointer = window.ns_window().map_err(|error| error.to_string())?;
+        panelize_context_bar(pointer)?;
         let native_window = unsafe {
             (pointer as *const NSWindow)
                 .as_ref()
@@ -287,6 +387,12 @@ pub fn context_bar_ready(app: AppHandle, state: State<PlatformState>) -> Result<
         native_window.setIgnoresMouseEvents(false);
         native_window.setAcceptsMouseMovedEvents(true);
         native_window.setHidesOnDeactivate(false);
+        native_window
+            .setStyleMask(native_window.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+        unsafe {
+            let _: () = objc2::msg_send![native_window, setFloatingPanel: true];
+            let _: () = objc2::msg_send![native_window, setBecomesKeyOnlyIfNeeded: true];
+        }
 
         // This auxiliary window must accompany whichever application owns the active
         // Space, including a native full-screen Space. Remove mutually exclusive flags
