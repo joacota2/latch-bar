@@ -208,6 +208,28 @@ fn monitor_work_area(monitor: &tauri::Monitor) -> LogicalRect {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn context_bar_collection_behavior(
+    mut behavior: objc2_app_kit::NSWindowCollectionBehavior,
+) -> objc2_app_kit::NSWindowCollectionBehavior {
+    use objc2_app_kit::NSWindowCollectionBehavior;
+
+    behavior.remove(
+        NSWindowCollectionBehavior::MoveToActiveSpace
+            | NSWindowCollectionBehavior::FullScreenPrimary
+            | NSWindowCollectionBehavior::FullScreenNone
+            | NSWindowCollectionBehavior::Primary
+            | NSWindowCollectionBehavior::Auxiliary,
+    );
+    behavior.insert(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::CanJoinAllApplications
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::IgnoresCycle,
+    );
+    behavior
+}
+
 #[tauri::command]
 pub fn platform_status(state: State<PlatformState>, prompt: bool) -> PlatformStatus {
     let mut status = state.adapter.status(prompt);
@@ -248,9 +270,7 @@ pub fn context_bar_ready(app: AppHandle, state: State<PlatformState>) -> Result<
     #[cfg(target_os = "macos")]
     {
         use block2::RcBlock;
-        use objc2_app_kit::{
-            NSApplication, NSEvent, NSEventMask, NSWindow, NSWindowCollectionBehavior,
-        };
+        use objc2_app_kit::{NSApplication, NSEvent, NSEventMask, NSWindow};
         use objc2_foundation::MainThreadMarker;
         let window = app
             .get_webview_window("context-bar")
@@ -271,18 +291,9 @@ pub fn context_bar_ready(app: AppHandle, state: State<PlatformState>) -> Result<
         // This auxiliary window must accompany whichever application owns the active
         // Space, including a native full-screen Space. Remove mutually exclusive flags
         // before installing the desired behaviors.
-        let mut behavior = native_window.collectionBehavior();
-        behavior.remove(
-            NSWindowCollectionBehavior::MoveToActiveSpace
-                | NSWindowCollectionBehavior::FullScreenPrimary
-                | NSWindowCollectionBehavior::FullScreenNone,
-        );
-        behavior.insert(
-            NSWindowCollectionBehavior::CanJoinAllSpaces
-                | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::IgnoresCycle,
-        );
-        native_window.setCollectionBehavior(behavior);
+        native_window.setCollectionBehavior(context_bar_collection_behavior(
+            native_window.collectionBehavior(),
+        ));
 
         if !state
             .context_mouse_monitor_started
@@ -709,6 +720,29 @@ mod tests {
         second.bounds.y = 0.12;
 
         assert_eq!(selection_key(&first), selection_key(&second));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn context_bar_can_join_other_app_fullscreen_spaces() {
+        use objc2_app_kit::NSWindowCollectionBehavior;
+
+        let behavior = context_bar_collection_behavior(
+            NSWindowCollectionBehavior::MoveToActiveSpace
+                | NSWindowCollectionBehavior::Primary
+                | NSWindowCollectionBehavior::FullScreenPrimary,
+        );
+
+        assert!(behavior.contains(NSWindowCollectionBehavior::CanJoinAllSpaces));
+        assert!(behavior.contains(NSWindowCollectionBehavior::CanJoinAllApplications));
+        assert!(behavior.contains(NSWindowCollectionBehavior::FullScreenAuxiliary));
+        assert!(!behavior.intersects(
+            NSWindowCollectionBehavior::MoveToActiveSpace
+                | NSWindowCollectionBehavior::Primary
+                | NSWindowCollectionBehavior::Auxiliary
+                | NSWindowCollectionBehavior::FullScreenPrimary
+                | NSWindowCollectionBehavior::FullScreenNone
+        ));
     }
 
     fn work_area() -> LogicalRect {
