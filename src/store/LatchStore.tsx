@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
-import type { AppSettings, CodexAgent, CodexSkill, ContextBarState, McpServer, NavKey, Run, Workspace } from "../domain";
-import { seedAgents, seedMcps, seedRuns, seedSettings, seedSkills, seedWorkspaces } from "../data/seed";
+import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, ContextBarState, McpServer, NavKey, Run, Workspace } from "../domain";
+import { seedAgents, seedRuns, seedSettings } from "../data/seed";
 import { isTauri, scanCodexEnvironment } from "../services/runtime";
 
 interface Toast { id: number; message: string }
@@ -21,6 +21,10 @@ interface LatchState {
   mcps: McpServer[];
   skills: CodexSkill[];
   workspaces: Workspace[];
+  codexEnvironment: CodexEnvironment | null;
+  environmentStatus: "idle" | "loading" | "ready" | "unavailable" | "error";
+  environmentError: string;
+  refreshCodexEnvironment: (workspacePath?: string, profile?: string) => Promise<CodexEnvironment | null>;
   runs: Run[];
   upsertRun: (run: Run) => void;
   settings: AppSettings;
@@ -50,8 +54,27 @@ interface PersistedState {
 function normalizePersisted(parsed: PersistedState | null) {
   if (!parsed) return null;
   const legacySeedIds = new Set(["run-security", "run-writing", "run-error", "run-plan"]);
+  const agents = parsed.agents?.map((agent) => {
+    const current = { ...agent } as CodexAgent & { speed?: string };
+    delete current.speed;
+    return {
+      ...current,
+      model: current.model === "custom" ? "default" : current.model,
+      serviceTier: current.serviceTier ?? "default",
+    } satisfies CodexAgent;
+  });
+  const settings = parsed.settings
+    ? { ...seedSettings, ...parsed.settings } as AppSettings & { codexHome?: string; studioAppearance?: string; contextBarAppearance?: string }
+    : undefined;
+  if (settings) {
+    delete settings.codexHome;
+    delete settings.studioAppearance;
+    delete settings.contextBarAppearance;
+  }
   return {
     ...parsed,
+    agents,
+    settings,
     runs: parsed.runs?.filter((run) => !legacySeedIds.has(run.id) && run.sourceApplication !== "Selection preview" && !run.threadId?.startsWith("thr_preview_")),
   };
 }
@@ -72,22 +95,52 @@ export function LatchProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<CodexAgent[]>(persisted?.agents ?? seedAgents);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [runs, setRuns] = useState<Run[]>(persisted?.runs ?? seedRuns);
-  const [mcps, setMcps] = useState<McpServer[]>(seedMcps);
-  const [skills, setSkills] = useState<CodexSkill[]>(seedSkills);
+  const [mcps, setMcps] = useState<McpServer[]>([]);
+  const [skills, setSkills] = useState<CodexSkill[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [codexEnvironment, setCodexEnvironment] = useState<CodexEnvironment | null>(null);
+  const [environmentStatus, setEnvironmentStatus] = useState<LatchState["environmentStatus"]>("idle");
+  const [environmentError, setEnvironmentError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(persisted?.settings ?? seedSettings);
   const [contextBarState, setContextBarState] = useState<ContextBarState>("idle");
   const [contextAgentId, setContextAgentId] = useState<string | null>(null);
   const [contextResult, setContextResult] = useState("");
   const [studioExpanded, setStudioExpanded] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const environmentRequestId = useRef(0);
 
-  useEffect(() => {
-    void scanCodexEnvironment().then((environment) => {
-      if (!environment) return;
-      setMcps(environment.mcps);
-      setSkills(environment.skills);
-    }).catch(() => undefined);
+  const refreshCodexEnvironment = useCallback(async (workspacePath?: string, profile?: string) => {
+    const requestId = ++environmentRequestId.current;
+    if (!isTauri()) {
+      if (requestId === environmentRequestId.current) setEnvironmentStatus("unavailable");
+      return null;
+    }
+    setEnvironmentStatus("loading");
+    setEnvironmentError("");
+    try {
+      const environment = await scanCodexEnvironment(workspacePath, profile);
+      if (!environment) {
+        if (requestId === environmentRequestId.current) setEnvironmentStatus("unavailable");
+        return null;
+      }
+      if (requestId === environmentRequestId.current) {
+        setCodexEnvironment(environment);
+        setMcps(environment.mcpServers);
+        setSkills(environment.skills);
+        setWorkspaces(environment.workspaces);
+        setEnvironmentStatus("ready");
+      }
+      return environment;
+    } catch (caught) {
+      if (requestId === environmentRequestId.current) {
+        setEnvironmentError(caught instanceof Error ? caught.message : String(caught));
+        setEnvironmentStatus("error");
+      }
+      return null;
+    }
   }, []);
+
+  useEffect(() => { void refreshCodexEnvironment(); }, [refreshCodexEnvironment]);
 
   useEffect(() => {
     const applySnapshot = (snapshot: PersistedState) => {
@@ -200,13 +253,14 @@ export function LatchProvider({ children }: { children: ReactNode }) {
     agents, selectedAgentId, setSelectedAgentId, createAgent, updateAgent, duplicateAgent, deleteAgent,
     togglePin: (id) => patchAgent(id, { pinned: !agents.find((agent) => agent.id === id)?.pinned }),
     toggleEnabled: (id) => patchAgent(id, { enabled: !agents.find((agent) => agent.id === id)?.enabled }),
-    mcps, skills, workspaces: seedWorkspaces,
+    mcps, skills, workspaces,
+    codexEnvironment, environmentStatus, environmentError, refreshCodexEnvironment,
     runs, upsertRun,
     settings, updateSettings,
     contextBarState, setContextBarState, contextAgentId, setContextAgentId, contextResult, setContextResult,
     studioExpanded, setStudioExpanded,
     toasts, notify,
-  }), [activeNav, agents, contextAgentId, contextBarState, contextResult, createAgent, deleteAgent, duplicateAgent, mcps, notify, patchAgent, runs, selectedAgentId, settings, skills, studioExpanded, updateAgent, updateSettings, upsertRun]);
+  }), [activeNav, agents, codexEnvironment, contextAgentId, contextBarState, contextResult, createAgent, deleteAgent, duplicateAgent, environmentError, environmentStatus, mcps, notify, patchAgent, refreshCodexEnvironment, runs, selectedAgentId, settings, skills, studioExpanded, updateAgent, updateSettings, upsertRun, workspaces]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

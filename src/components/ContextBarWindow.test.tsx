@@ -88,7 +88,7 @@ describe("Context Bar lifecycle", () => {
     await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
 
     emit("native-selection", selection("First selection", 20));
-    await user.click(screen.getByText("Staff"));
+    await user.click(screen.getByRole("button", { name: "Run Staff engineer" }));
 
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
     expect(mocks.startNativeRun.mock.calls[0][0]).toMatchObject({
@@ -110,7 +110,7 @@ describe("Context Bar lifecycle", () => {
 
     emit("native-selection", selection("Second selection", 260));
     await waitFor(() => expect(mocks.stopNativeRun).toHaveBeenCalledWith("run-1"));
-    await user.click(await screen.findByText("Improve"));
+    await user.click(await screen.findByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(2));
   });
 
@@ -128,7 +128,7 @@ describe("Context Bar lifecycle", () => {
     expect(screen.getByRole("button", { name: /Replace/ })).toBeDisabled();
     expect(screen.getByText("Codex is preparing the response…").closest("article")).toHaveClass("context-chat-message", "assistant", "is-streaming");
     expect(mocks.openStudio).not.toHaveBeenCalled();
-    await waitFor(() => expect(mocks.resizeContextBar).toHaveBeenCalledWith(300));
+    await waitFor(() => expect(mocks.resizeContextBar).toHaveBeenCalledWith(300, 660, 80));
 
     emit("codex-event", {
       runId: "run-1",
@@ -197,5 +197,39 @@ describe("Context Bar lifecycle", () => {
     expect(translateButton.closest(".context-agent-option")).toHaveClass("is-launching");
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
     expect(mocks.openStudio).not.toHaveBeenCalled();
+  });
+
+  it("keeps crowded pins icon-only and exposes the remainder without widening indefinitely", async () => {
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("latch-state-changed")).toBe(true));
+    emit("native-selection", selection("Selected text", 20));
+
+    const crowdedAgents = Array.from({ length: 10 }, (_, index) => ({
+      ...seedAgents[index % seedAgents.length],
+      id: `pinned-${index + 1}`,
+      name: `Pinned agent ${index + 1}`,
+      icon: String(index + 1),
+      pinned: true,
+      order: index,
+    }));
+    emit("latch-state-changed", {
+      agents: crowdedAgents,
+      runs: [],
+      settings: seedSettings,
+    });
+
+    const bar = await screen.findByRole("region", { name: "Latch Context Bar" });
+    const compactPins = bar.querySelectorAll(".context-pinned-agents .context-action");
+    expect(compactPins).toHaveLength(7);
+    expect(compactPins[0]).toHaveAttribute("data-agent-name", "Pinned agent 1");
+    expect(compactPins[0]).toHaveTextContent("1Pinned agent 1");
+    expect(compactPins[0].querySelector(".context-agent-tooltip")).toHaveTextContent("Pinned agent 1");
+    expect(bar.closest(".context-wrap")).not.toHaveClass("context-surface-glass");
+    expect(screen.getByRole("button", { name: "Show 3 more pinned agents" })).toBeInTheDocument();
+    await waitFor(() => expect(mocks.resizeContextBar).toHaveBeenCalledWith(86, 413, 80));
+
+    await user.click(screen.getByRole("button", { name: "Show 3 more pinned agents" }));
+    expect(within(screen.getByRole("menu", { name: "All agents" })).getAllByRole("button", { name: /Run Pinned agent/ })).toHaveLength(10);
   });
 });

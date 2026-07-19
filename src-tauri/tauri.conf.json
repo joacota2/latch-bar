@@ -23,13 +23,13 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "transparent": false
+        "transparent": true
       },
       {
         "label": "context-bar",
         "title": "Latch Context Bar",
-        "width": 780,
-        "height": 76,
+        "width": 420,
+        "height": 58,
         "resizable": false,
         "fullscreen": false,
         "decorations": false,

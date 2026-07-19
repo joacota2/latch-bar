@@ -1,19 +1,17 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, BTreeSet, HashSet},
     env, fs,
     path::{Path, PathBuf},
     process::Command,
 };
-use walkdir::WalkDir;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {
     available: bool,
     version: String,
-    authenticated: bool,
     codex_home: String,
     mode: String,
 }
@@ -23,8 +21,118 @@ pub struct RuntimeStatus {
 pub struct EnvironmentSnapshot {
     codex_home: String,
     config_path: String,
+    user_agent: String,
+    models: Vec<ModelSummary>,
+    effective_config: EffectiveConfigSummary,
+    account: AccountSummary,
+    profiles: Vec<String>,
     mcp_servers: Vec<McpSummary>,
     skills: Vec<SkillSummary>,
+    permission_profiles: Vec<PermissionProfileSummary>,
+    requirements: RequirementsSummary,
+    provider_capabilities: ProviderCapabilitiesSummary,
+    experimental_features: Vec<ExperimentalFeatureSummary>,
+    workspaces: Vec<WorkspaceSummary>,
+    errors: Vec<String>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelSummary {
+    id: String,
+    model: String,
+    display_name: String,
+    description: String,
+    hidden: bool,
+    is_default: bool,
+    supported_reasoning_efforts: Vec<ReasoningEffortSummary>,
+    default_reasoning_effort: Option<String>,
+    service_tiers: Vec<ServiceTierSummary>,
+    default_service_tier: Option<String>,
+    input_modalities: Vec<String>,
+    supports_personality: bool,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasoningEffortSummary {
+    id: String,
+    description: String,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceTierSummary {
+    id: String,
+    name: String,
+    description: String,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveConfigSummary {
+    model: Option<String>,
+    model_provider: Option<String>,
+    reasoning_effort: Option<String>,
+    service_tier: Option<String>,
+    approval_policy: Option<String>,
+    sandbox_mode: Option<String>,
+    permission_profile: Option<String>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSummary {
+    signed_in: bool,
+    account_type: Option<String>,
+    plan_type: Option<String>,
+    requires_openai_auth: bool,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionProfileSummary {
+    id: String,
+    description: Option<String>,
+    allowed: bool,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RequirementsSummary {
+    allowed_approval_policies: Option<Vec<String>>,
+    allowed_sandbox_modes: Option<Vec<String>>,
+    allowed_permission_profiles: Option<BTreeMap<String, bool>>,
+    default_permissions: Option<String>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilitiesSummary {
+    namespace_tools: bool,
+    image_generation: bool,
+    web_search: bool,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExperimentalFeatureSummary {
+    name: String,
+    display_name: Option<String>,
+    description: Option<String>,
+    stage: String,
+    enabled: bool,
+    default_enabled: bool,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSummary {
+    id: String,
+    name: String,
+    path: String,
+    branch: Option<String>,
+    last_used_at: i64,
 }
 
 #[derive(Serialize)]
@@ -36,6 +144,9 @@ pub struct McpSummary {
     enabled: bool,
     authentication: String,
     source: String,
+    health: String,
+    detail: String,
+    configurable: bool,
     config_path: String,
 }
 
@@ -44,7 +155,7 @@ pub struct McpSummary {
 pub struct SkillSummary {
     id: String,
     name: String,
-    description: Option<String>,
+    description: String,
     source: String,
     path: String,
     enabled: bool,
@@ -153,6 +264,15 @@ pub(crate) fn codex_command() -> Command {
     command
 }
 
+pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Command {
+    let mut command = codex_command();
+    if let Some(profile) = profile.filter(|profile| !profile.is_empty() && *profile != "default") {
+        command.arg("--profile").arg(profile);
+    }
+    command.arg("app-server");
+    command
+}
+
 #[tauri::command]
 pub fn codex_status() -> RuntimeStatus {
     let output = codex_command().arg("--version").output();
@@ -169,210 +289,849 @@ pub fn codex_status() -> RuntimeStatus {
     RuntimeStatus {
         available,
         version,
-        authenticated: home.join("auth.json").exists(),
         codex_home: home.to_string_lossy().into_owned(),
         mode: "native".into(),
     }
 }
 
-fn parse_mcps(config_path: &Path, source: &str) -> Vec<McpSummary> {
-    let Ok(raw) = fs::read_to_string(config_path) else {
-        return vec![];
-    };
-    let Ok(value) = raw.parse::<toml::Value>() else {
-        return vec![];
-    };
-    let Some(servers) = value.get("mcp_servers").and_then(toml::Value::as_table) else {
-        return vec![];
-    };
-    servers
-        .iter()
-        .map(|(id, server)| {
-            let table = server.as_table();
-            let transport = if table.and_then(|t| t.get("url")).is_some() {
-                "http"
-            } else {
-                "stdio"
-            };
-            let authentication = if table.and_then(|t| t.get("bearer_token_env_var")).is_some() {
-                "bearer"
-            } else if table
-                .and_then(|t| t.get("auth"))
-                .and_then(toml::Value::as_str)
-                == Some("oauth")
-            {
-                "oauth"
-            } else if table.and_then(|t| t.get("env")).is_some()
-                || table.and_then(|t| t.get("env_vars")).is_some()
-            {
-                "environment"
-            } else {
-                "none"
-            };
-            McpSummary {
-                id: id.clone(),
-                name: id
-                    .split(['-', '_'])
-                    .map(|part| {
-                        let mut chars = part.chars();
-                        chars
-                            .next()
-                            .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
-                            .unwrap_or_default()
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                transport: transport.into(),
-                enabled: table
-                    .and_then(|t| t.get("enabled"))
-                    .and_then(toml::Value::as_bool)
-                    .unwrap_or(true),
-                authentication: authentication.into(),
-                source: source.into(),
-                config_path: config_path.to_string_lossy().into_owned(),
-            }
-        })
-        .collect()
-}
-
 pub(crate) fn mcp_config_overrides(
-    workspace_path: Option<&str>,
+    configured_servers: &[String],
     enabled_servers: &[String],
 ) -> Value {
-    let mut config_paths = vec![codex_home().join("config.toml")];
-    if let Some(workspace) = workspace_path {
-        config_paths.push(PathBuf::from(workspace).join(".codex/config.toml"));
-    }
-    let configured = config_paths
-        .iter()
-        .filter_map(|path| fs::read_to_string(path).ok())
-        .filter_map(|raw| raw.parse::<toml::Value>().ok())
-        .filter_map(|config| {
-            config
-                .get("mcp_servers")
-                .and_then(toml::Value::as_table)
-                .cloned()
-        })
-        .flat_map(|servers| servers.into_iter().map(|(id, _)| id))
-        .collect::<HashSet<_>>();
     let enabled = enabled_servers.iter().collect::<HashSet<_>>();
-    let overrides = configured
-        .into_iter()
+    let overrides = configured_servers
+        .iter()
         .map(|id| {
-            let is_enabled = enabled.contains(&id);
-            (id, json!({ "enabled": is_enabled }))
+            let is_enabled = enabled.contains(id);
+            (id.clone(), json!({ "enabled": is_enabled }))
         })
         .collect::<serde_json::Map<_, _>>();
     json!({ "mcp_servers": overrides })
 }
 
-pub(crate) fn selected_skill_inputs(
-    workspace_path: Option<&str>,
-    enabled_skills: &[String],
+fn string(value: Option<&Value>) -> Option<String> {
+    value.and_then(Value::as_str).map(str::to_string)
+}
+
+fn string_list(value: Option<&Value>) -> Option<Vec<String>> {
+    value.and_then(Value::as_array).map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
+    })
+}
+
+fn display_name(id: &str) -> String {
+    id.split(['-', '_'])
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn slug(value: &str) -> String {
+    let mut result = String::new();
+    let mut pending_dash = false;
+    for character in value.chars().flat_map(char::to_lowercase) {
+        if character.is_alphanumeric() {
+            if pending_dash && !result.is_empty() {
+                result.push('-');
+            }
+            result.push(character);
+            pending_dash = false;
+        } else {
+            pending_dash = true;
+        }
+    }
+    result
+}
+
+fn query(
+    client: &mut crate::app_server::AppServerClient,
+    method: &str,
+    params: Value,
+    errors: &mut Vec<String>,
+) -> Option<Value> {
+    match client.request(method, params) {
+        Ok(result) => Some(result),
+        Err(error) => {
+            errors.push(error);
+            None
+        }
+    }
+}
+
+fn paginated(
+    client: &mut crate::app_server::AppServerClient,
+    method: &str,
+    params: Value,
+    max_pages: usize,
+    errors: &mut Vec<String>,
 ) -> Vec<Value> {
-    let mut roots = vec![codex_home().join("skills")];
-    if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".agents/skills"));
+    let mut data = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..max_pages {
+        let mut page_params = params.clone();
+        if let (Some(cursor), Some(object)) = (cursor.as_ref(), page_params.as_object_mut()) {
+            object.insert("cursor".into(), json!(cursor));
+        }
+        let Some(page) = query(client, method, page_params, errors) else {
+            break;
+        };
+        if let Some(items) = page.get("data").and_then(Value::as_array) {
+            data.extend(items.iter().cloned());
+        }
+        cursor = string(page.get("nextCursor"));
+        if cursor.is_none() {
+            break;
+        }
     }
-    if let Some(workspace) = workspace_path {
-        roots.push(PathBuf::from(workspace).join(".agents/skills"));
-    }
-    let enabled = enabled_skills.iter().collect::<HashSet<_>>();
-    roots
+    data
+}
+
+fn parse_models(items: Vec<Value>) -> Vec<ModelSummary> {
+    items
         .into_iter()
-        .filter(|root| root.exists())
-        .flat_map(|root| WalkDir::new(root).max_depth(4).follow_links(true))
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_name() == "SKILL.md")
-        .filter_map(|entry| {
-            let summary = skill_from_file(entry.path(), "runtime");
-            enabled.contains(&summary.id).then(|| {
-                json!({
-                    "type": "skill",
-                    "name": summary.name,
-                    "path": entry.path().to_string_lossy()
+        .filter_map(|item| {
+            let model = item.get("model")?.as_str()?.to_string();
+            let supported_reasoning_efforts = item
+                .get("supportedReasoningEfforts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|effort| {
+                    Some(ReasoningEffortSummary {
+                        id: effort.get("reasoningEffort")?.as_str()?.to_string(),
+                        description: effort
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
                 })
+                .collect();
+            let service_tiers = item
+                .get("serviceTiers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|tier| {
+                    Some(ServiceTierSummary {
+                        id: tier.get("id")?.as_str()?.to_string(),
+                        name: tier
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        description: tier
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                })
+                .collect();
+            Some(ModelSummary {
+                id: item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&model)
+                    .to_string(),
+                display_name: item
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&model)
+                    .to_string(),
+                description: item
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                hidden: item.get("hidden").and_then(Value::as_bool).unwrap_or(false),
+                is_default: item
+                    .get("isDefault")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                default_reasoning_effort: string(item.get("defaultReasoningEffort")),
+                default_service_tier: string(item.get("defaultServiceTier")),
+                input_modalities: item
+                    .get("inputModalities")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect(),
+                supports_personality: item
+                    .get("supportsPersonality")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                supported_reasoning_efforts,
+                service_tiers,
+                model,
             })
         })
         .collect()
 }
 
-fn skill_from_file(path: &Path, source: &str) -> SkillSummary {
-    let raw = fs::read_to_string(path).unwrap_or_default();
-    let mut name = path
-        .parent()
-        .and_then(Path::file_name)
-        .map(|v| v.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Unnamed skill".into());
-    let mut description = None;
-    let mut in_frontmatter = false;
-    for line in raw.lines().take(24) {
-        if line.trim() == "---" {
-            in_frontmatter = !in_frontmatter;
-            continue;
-        }
-        if !in_frontmatter {
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("name:") {
-            name = value.trim().trim_matches('"').to_string();
-        }
-        if let Some(value) = line.strip_prefix("description:") {
-            description = Some(value.trim().trim_matches('"').to_string());
-        }
-    }
-    let validation_errors = if raw.is_empty() {
-        vec!["SKILL.md could not be read".into()]
-    } else {
-        vec![]
-    };
-    SkillSummary {
-        id: name.to_lowercase().replace(' ', "-"),
-        name,
-        description,
-        source: source.into(),
-        path: path.to_string_lossy().into_owned(),
-        enabled: true,
-        compatible: validation_errors.is_empty(),
-        validation_errors,
+fn parse_effective_config(response: Option<&Value>) -> EffectiveConfigSummary {
+    let config = response.and_then(|response| response.get("config"));
+    EffectiveConfigSummary {
+        model: string(config.and_then(|value| value.get("model"))),
+        model_provider: string(config.and_then(|value| value.get("model_provider"))),
+        reasoning_effort: string(config.and_then(|value| value.get("model_reasoning_effort"))),
+        service_tier: string(config.and_then(|value| value.get("service_tier"))),
+        approval_policy: string(config.and_then(|value| value.get("approval_policy"))),
+        sandbox_mode: string(config.and_then(|value| value.get("sandbox_mode"))),
+        permission_profile: string(config.and_then(|value| value.get("default_permissions"))),
     }
 }
 
-#[tauri::command]
-pub fn scan_codex_environment(workspace_path: Option<String>) -> EnvironmentSnapshot {
-    let home = codex_home();
-    let config_path = home.join("config.toml");
-    let mut mcps = parse_mcps(&config_path, "global");
-    let mut roots: Vec<(PathBuf, &str)> = vec![(home.join("skills"), "global")];
-    if let Some(user_home) = dirs::home_dir() {
-        roots.push((user_home.join(".agents/skills"), "global"));
-    }
-    if let Some(workspace) = workspace_path {
-        let root = PathBuf::from(workspace);
-        let project_config = root.join(".codex/config.toml");
-        mcps.extend(parse_mcps(&project_config, "project"));
-        roots.push((root.join(".agents/skills"), "workspace"));
-    }
-    let skills = roots
+fn effective_user_config_path(response: Option<&Value>, home: &Path) -> String {
+    response
+        .and_then(|response| response.get("layers"))
+        .and_then(Value::as_array)
         .into_iter()
-        .flat_map(|(root, source)| {
-            if !root.exists() {
-                return Vec::new();
-            }
-            WalkDir::new(root)
-                .max_depth(4)
-                .follow_links(true)
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter(|entry| entry.file_name() == "SKILL.md")
-                .map(|entry| skill_from_file(entry.path(), source))
-                .collect::<Vec<_>>()
+        .flatten()
+        .filter_map(|layer| layer.get("name"))
+        .find(|source| {
+            source.get("type").and_then(Value::as_str) == Some("user")
+                && source.get("profile").is_none_or(Value::is_null)
         })
-        .collect();
-    EnvironmentSnapshot {
+        .and_then(|source| source.get("file"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| home.join("config.toml").to_string_lossy().into_owned())
+}
+
+fn parse_account(response: Option<&Value>) -> AccountSummary {
+    let account = response.and_then(|value| value.get("account"));
+    AccountSummary {
+        signed_in: account.is_some_and(|value| !value.is_null()),
+        account_type: string(account.and_then(|value| value.get("type"))),
+        plan_type: string(account.and_then(|value| value.get("planType"))),
+        requires_openai_auth: response
+            .and_then(|value| value.get("requiresOpenaiAuth"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+fn mcp_origin(config_response: Option<&Value>, id: &str, fallback_path: &str) -> (String, String) {
+    let root = format!("mcp_servers.{id}");
+    let prefix = format!("mcp_servers.{id}.");
+    let source = config_response
+        .and_then(|response| response.get("origins"))
+        .and_then(Value::as_object)
+        .and_then(|origins| {
+            origins
+                .iter()
+                .find(|(key, _)| key.as_str() == root || key.starts_with(&prefix))
+        })
+        .and_then(|(_, metadata)| metadata.get("name"));
+    let kind = source
+        .and_then(|source| source.get("type"))
+        .and_then(Value::as_str)
+        .unwrap_or("effective");
+    let label = match kind {
+        "user"
+            if source
+                .and_then(|value| value.get("profile"))
+                .is_some_and(|value| !value.is_null()) =>
+        {
+            "profile"
+        }
+        "user" => "user",
+        "project" => "project",
+        "system" => "system",
+        "enterpriseManaged" => "enterprise",
+        "mdm" | "legacyManagedConfigTomlFromFile" | "legacyManagedConfigTomlFromMdm" => "managed",
+        "sessionFlags" => "session",
+        _ => "effective",
+    };
+    let path = source
+        .and_then(|source| {
+            source
+                .get("file")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    source
+                        .get("dotCodexFolder")
+                        .and_then(Value::as_str)
+                        .map(|folder| {
+                            Path::new(folder)
+                                .join("config.toml")
+                                .to_string_lossy()
+                                .into_owned()
+                        })
+                })
+        })
+        .unwrap_or_else(|| fallback_path.to_string());
+    (label.into(), path)
+}
+
+fn parse_mcps(
+    config_response: Option<&Value>,
+    statuses: Vec<Value>,
+    config_path: &str,
+) -> Vec<McpSummary> {
+    let mut servers = BTreeMap::<String, McpSummary>::new();
+    if let Some(configured) = config_response
+        .and_then(|value| value.get("config"))
+        .and_then(|value| value.get("mcp_servers"))
+        .and_then(Value::as_object)
+    {
+        for (id, value) in configured {
+            let (source, origin_path) = mcp_origin(config_response, id, config_path);
+            let enabled = value
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let transport = if value.get("url").is_some() {
+                "http"
+            } else {
+                "stdio"
+            };
+            let authentication = if value.get("bearer_token_env_var").is_some() {
+                "bearer"
+            } else if value.get("env").is_some() || value.get("env_vars").is_some() {
+                "environment"
+            } else {
+                "unknown"
+            };
+            servers.insert(
+                id.clone(),
+                McpSummary {
+                    id: id.clone(),
+                    name: display_name(id),
+                    transport: transport.into(),
+                    enabled,
+                    authentication: authentication.into(),
+                    source,
+                    health: if enabled { "unknown" } else { "disabled" }.into(),
+                    detail: if enabled {
+                        "Waiting for Codex status"
+                    } else {
+                        "Disabled in Codex"
+                    }
+                    .into(),
+                    configurable: true,
+                    config_path: origin_path,
+                },
+            );
+        }
+    }
+
+    for status in statuses {
+        let Some(id) = status.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let tool_count = status
+            .get("tools")
+            .and_then(Value::as_object)
+            .map(|tools| tools.len())
+            .unwrap_or(0);
+        let resource_count = status
+            .get("resources")
+            .and_then(Value::as_array)
+            .map(|resources| resources.len())
+            .unwrap_or(0);
+        let auth_status = status
+            .get("authStatus")
+            .and_then(Value::as_str)
+            .unwrap_or("unsupported");
+        let entry = servers.entry(id.to_string()).or_insert_with(|| McpSummary {
+            id: id.to_string(),
+            name: display_name(id),
+            transport: "managed".into(),
+            enabled: true,
+            authentication: "unknown".into(),
+            source: "managed".into(),
+            health: "unknown".into(),
+            detail: String::new(),
+            configurable: false,
+            config_path: config_path.into(),
+        });
+        entry.authentication = match auth_status {
+            "oAuth" | "notLoggedIn" => "oauth",
+            "bearerToken" => "bearer",
+            _ => "none",
+        }
+        .into();
+        if entry.enabled {
+            entry.health = if auth_status == "notLoggedIn" {
+                "error"
+            } else {
+                "connected"
+            }
+            .into();
+        }
+        entry.detail = match (tool_count, resource_count) {
+            (tools, 0) => format!("{tools} tools"),
+            (tools, resources) => format!("{tools} tools · {resources} resources"),
+        };
+    }
+    servers.into_values().collect()
+}
+
+fn parse_skills(response: Option<&Value>) -> Vec<SkillSummary> {
+    let mut errors = Vec::<(String, String)>::new();
+    let mut skills = BTreeMap::<String, SkillSummary>::new();
+    for entry in response
+        .and_then(|value| value.get("data"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for error in entry
+            .get("errors")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let (Some(path), Some(message)) = (
+                error.get("path").and_then(Value::as_str),
+                error.get("message").and_then(Value::as_str),
+            ) {
+                errors.push((path.into(), message.into()));
+            }
+        }
+        for skill in entry
+            .get("skills")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(name) = skill.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let path = skill
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let validation_errors = errors
+                .iter()
+                .filter(|(error_path, _)| {
+                    path.starts_with(error_path) || error_path.starts_with(&path)
+                })
+                .map(|(_, message)| message.clone())
+                .collect::<Vec<_>>();
+            skills.insert(
+                slug(name),
+                SkillSummary {
+                    id: slug(name),
+                    name: name.into(),
+                    description: skill
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .into(),
+                    source: skill
+                        .get("scope")
+                        .and_then(Value::as_str)
+                        .unwrap_or("user")
+                        .into(),
+                    path,
+                    enabled: skill
+                        .get("enabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true),
+                    compatible: validation_errors.is_empty(),
+                    validation_errors,
+                },
+            );
+        }
+    }
+    skills.into_values().collect()
+}
+
+fn parse_permissions(items: Vec<Value>) -> Vec<PermissionProfileSummary> {
+    items
+        .into_iter()
+        .filter_map(|item| {
+            Some(PermissionProfileSummary {
+                id: item.get("id")?.as_str()?.into(),
+                description: string(item.get("description")),
+                allowed: item.get("allowed").and_then(Value::as_bool).unwrap_or(true),
+            })
+        })
+        .collect()
+}
+
+fn parse_requirements(response: Option<&Value>) -> RequirementsSummary {
+    let requirements = response.and_then(|value| value.get("requirements"));
+    RequirementsSummary {
+        allowed_approval_policies: string_list(
+            requirements.and_then(|value| value.get("allowedApprovalPolicies")),
+        ),
+        allowed_sandbox_modes: string_list(
+            requirements.and_then(|value| value.get("allowedSandboxModes")),
+        ),
+        allowed_permission_profiles: requirements
+            .and_then(|value| value.get("allowedPermissionProfiles"))
+            .and_then(Value::as_object)
+            .map(|profiles| {
+                profiles
+                    .iter()
+                    .filter_map(|(id, allowed)| Some((id.clone(), allowed.as_bool()?)))
+                    .collect()
+            }),
+        default_permissions: string(requirements.and_then(|value| value.get("defaultPermissions"))),
+    }
+}
+
+fn parse_provider_capabilities(response: Option<&Value>) -> ProviderCapabilitiesSummary {
+    ProviderCapabilitiesSummary {
+        namespace_tools: response
+            .and_then(|value| value.get("namespaceTools"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        image_generation: response
+            .and_then(|value| value.get("imageGeneration"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        web_search: response
+            .and_then(|value| value.get("webSearch"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+fn parse_experimental_features(items: Vec<Value>) -> Vec<ExperimentalFeatureSummary> {
+    items
+        .into_iter()
+        .filter_map(|item| {
+            Some(ExperimentalFeatureSummary {
+                name: item.get("name")?.as_str()?.into(),
+                display_name: string(item.get("displayName")),
+                description: string(item.get("description")),
+                stage: item
+                    .get("stage")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+                    .into(),
+                enabled: item
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                default_enabled: item
+                    .get("defaultEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+fn parse_workspaces(items: Vec<Value>) -> Vec<WorkspaceSummary> {
+    let mut by_path = BTreeMap::<String, WorkspaceSummary>::new();
+    for item in items {
+        let Some(path) = item.get("cwd").and_then(Value::as_str) else {
+            continue;
+        };
+        if path.is_empty() {
+            continue;
+        }
+        let last_used_at = item
+            .get("recencyAt")
+            .or_else(|| item.get("updatedAt"))
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let replace = by_path
+            .get(path)
+            .is_none_or(|workspace| last_used_at > workspace.last_used_at);
+        if !replace {
+            continue;
+        }
+        let name = Path::new(path)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| path.into());
+        by_path.insert(
+            path.into(),
+            WorkspaceSummary {
+                id: path.into(),
+                name,
+                path: path.into(),
+                branch: string(item.get("gitInfo").and_then(|value| value.get("branch"))),
+                last_used_at,
+            },
+        );
+    }
+    let mut workspaces = by_path.into_values().collect::<Vec<_>>();
+    workspaces.sort_by_key(|workspace| std::cmp::Reverse(workspace.last_used_at));
+    workspaces
+}
+
+fn discover_profiles(home: &Path, config_response: Option<&Value>) -> Vec<String> {
+    let mut profiles = BTreeSet::new();
+    if let Some(configured) = config_response
+        .and_then(|response| response.get("config"))
+        .and_then(|config| config.get("profiles"))
+        .and_then(Value::as_object)
+    {
+        profiles.extend(configured.keys().cloned());
+    }
+    if let Ok(entries) = fs::read_dir(home) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(profile) = name
+                .strip_suffix(".config.toml")
+                .filter(|name| !name.is_empty())
+            {
+                profiles.insert(profile.to_string());
+            }
+        }
+    }
+    profiles.into_iter().collect()
+}
+
+#[tauri::command]
+pub fn scan_codex_environment(
+    workspace_path: Option<String>,
+    profile: Option<String>,
+) -> Result<EnvironmentSnapshot, String> {
+    let cwd = workspace_path.map(expand_user_path).or_else(|| {
+        env::current_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned())
+    });
+    let profile = profile
+        .as_deref()
+        .filter(|profile| !profile.is_empty() && *profile != "default");
+    let mut client = crate::app_server::AppServerClient::connect(profile, cwd.as_deref())?;
+    let mut errors = Vec::new();
+    let home = if client.codex_home.is_empty() {
+        codex_home()
+    } else {
+        PathBuf::from(&client.codex_home)
+    };
+    let models = parse_models(paginated(
+        &mut client,
+        "model/list",
+        json!({ "limit": 100, "includeHidden": false }),
+        20,
+        &mut errors,
+    ));
+    let config_response = query(
+        &mut client,
+        "config/read",
+        json!({ "includeLayers": true, "cwd": cwd }),
+        &mut errors,
+    );
+    let config_path = effective_user_config_path(config_response.as_ref(), &home);
+    let skills_response = query(
+        &mut client,
+        "skills/list",
+        json!({ "cwds": cwd.iter().cloned().collect::<Vec<_>>(), "forceReload": false }),
+        &mut errors,
+    );
+    let mcp_statuses = paginated(
+        &mut client,
+        "mcpServerStatus/list",
+        json!({ "limit": 100, "detail": "toolsAndAuthOnly" }),
+        20,
+        &mut errors,
+    );
+    let permission_profiles = parse_permissions(paginated(
+        &mut client,
+        "permissionProfile/list",
+        json!({ "limit": 100, "cwd": cwd }),
+        20,
+        &mut errors,
+    ));
+    let requirements_response = query(
+        &mut client,
+        "configRequirements/read",
+        Value::Null,
+        &mut errors,
+    );
+    let account_response = query(
+        &mut client,
+        "account/read",
+        json!({ "refreshToken": false }),
+        &mut errors,
+    );
+    let provider_capabilities_response = query(
+        &mut client,
+        "modelProvider/capabilities/read",
+        json!({}),
+        &mut errors,
+    );
+    let experimental_features = parse_experimental_features(paginated(
+        &mut client,
+        "experimentalFeature/list",
+        json!({ "limit": 100 }),
+        20,
+        &mut errors,
+    ));
+    let thread_items = paginated(
+        &mut client,
+        "thread/list",
+        json!({
+            "limit": 100,
+            "sortKey": "recency_at",
+            "sortDirection": "desc",
+            "archived": false,
+            "useStateDbOnly": true
+        }),
+        20,
+        &mut errors,
+    );
+
+    Ok(EnvironmentSnapshot {
         codex_home: home.to_string_lossy().into_owned(),
-        config_path: config_path.to_string_lossy().into_owned(),
-        mcp_servers: mcps,
-        skills,
+        config_path: config_path.clone(),
+        user_agent: client.user_agent.clone(),
+        models,
+        effective_config: parse_effective_config(config_response.as_ref()),
+        account: parse_account(account_response.as_ref()),
+        profiles: discover_profiles(&home, config_response.as_ref()),
+        mcp_servers: parse_mcps(config_response.as_ref(), mcp_statuses, &config_path),
+        skills: parse_skills(skills_response.as_ref()),
+        permission_profiles,
+        requirements: parse_requirements(requirements_response.as_ref()),
+        provider_capabilities: parse_provider_capabilities(provider_capabilities_response.as_ref()),
+        experimental_features,
+        workspaces: parse_workspaces(thread_items),
+        errors,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_model_capabilities_from_app_server_data() {
+        let models = parse_models(vec![json!({
+            "id": "server-model",
+            "model": "server-model",
+            "displayName": "Server Model",
+            "description": "Discovered at runtime",
+            "hidden": false,
+            "isDefault": true,
+            "supportedReasoningEfforts": [
+                { "reasoningEffort": "high", "description": "High" },
+                { "reasoningEffort": "ultra", "description": "Ultra" }
+            ],
+            "defaultReasoningEffort": "high",
+            "serviceTiers": [{ "id": "priority", "name": "Priority", "description": "Faster" }],
+            "defaultServiceTier": null,
+            "inputModalities": ["text", "image"],
+            "supportsPersonality": true
+        })]);
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model, "server-model");
+        assert_eq!(models[0].supported_reasoning_efforts[1].id, "ultra");
+        assert_eq!(models[0].service_tiers[0].id, "priority");
+        assert!(models[0].is_default);
+    }
+
+    #[test]
+    fn builds_mcp_overrides_only_from_discovered_configurable_servers() {
+        let overrides = mcp_config_overrides(&["docs".into(), "github".into()], &["docs".into()]);
+
+        assert_eq!(
+            overrides.pointer("/mcp_servers/docs/enabled"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            overrides.pointer("/mcp_servers/github/enabled"),
+            Some(&json!(false))
+        );
+        assert!(overrides.pointer("/mcp_servers/runtime-managed").is_none());
+    }
+
+    #[test]
+    fn reports_mcp_origin_from_app_server_config_metadata() {
+        let response = json!({
+            "config": {
+                "mcp_servers": {
+                    "docs": { "url": "https://example.invalid/mcp", "enabled": true }
+                }
+            },
+            "origins": {
+                "mcp_servers.docs.url": {
+                    "name": { "type": "project", "dotCodexFolder": "/repo/.codex" },
+                    "version": "1"
+                }
+            }
+        });
+        let servers = parse_mcps(Some(&response), vec![], "/fallback/config.toml");
+
+        assert_eq!(servers[0].source, "project");
+        assert_eq!(servers[0].config_path, "/repo/.codex/config.toml");
+    }
+
+    #[test]
+    fn deduplicates_recent_workspaces_using_the_latest_thread() {
+        let workspaces = parse_workspaces(vec![
+            json!({ "cwd": "/repo", "updatedAt": 10, "gitInfo": { "branch": "old" } }),
+            json!({ "cwd": "/repo", "recencyAt": 20, "gitInfo": { "branch": "main" } }),
+            json!({ "cwd": "/other", "updatedAt": 15, "gitInfo": null }),
+        ]);
+
+        assert_eq!(workspaces.len(), 2);
+        assert_eq!(workspaces[0].path, "/repo");
+        assert_eq!(workspaces[0].branch.as_deref(), Some("main"));
+        assert_eq!(workspaces[1].path, "/other");
+    }
+
+    #[test]
+    fn parses_permission_requirements_using_the_app_server_contract() {
+        let requirements = parse_requirements(Some(&json!({
+            "requirements": {
+                "allowedApprovalPolicies": ["on-request"],
+                "allowedSandboxModes": ["read-only"],
+                "allowedPermissionProfiles": {
+                    ":read-only": true,
+                    ":danger-full-access": false
+                },
+                "defaultPermissions": ":read-only"
+            }
+        })));
+
+        assert_eq!(
+            requirements.allowed_approval_policies,
+            Some(vec!["on-request".into()])
+        );
+        assert_eq!(
+            requirements
+                .allowed_permission_profiles
+                .as_ref()
+                .and_then(|profiles| profiles.get(":danger-full-access")),
+            Some(&false)
+        );
+        assert_eq!(
+            requirements.default_permissions.as_deref(),
+            Some(":read-only")
+        );
+    }
+
+    #[test]
+    fn uses_the_user_config_path_reported_by_config_layers() {
+        let response = json!({
+            "layers": [
+                { "name": { "type": "system", "file": "/etc/codex/config.toml" } },
+                { "name": { "type": "user", "file": "/custom/codex/config.toml", "profile": null } }
+            ]
+        });
+
+        assert_eq!(
+            effective_user_config_path(Some(&response), Path::new("/fallback")),
+            "/custom/codex/config.toml"
+        );
     }
 }

@@ -9,7 +9,7 @@ Latch Bar is a contextual desktop surface for the Codex installation already on 
 - A separate non-activating, always-on-top Context Bar window driven by real macOS text selections, including full-screen Spaces.
 - Native Accessibility capture with a gesture-gated clipboard fallback for custom editors, secure-field exclusion, bounds positioning, direct replacement, and clipboard-paste replacement.
 - Persistent local agents, settings, and real run history (no seeded or simulated runs).
-- A Tauri 2 shell with Codex status, MCP/Skill discovery, and a supervised `codex app-server` JSONL client with streaming, approvals, cancellation, and shutdown.
+- A Tauri 2 shell with app-server-backed model, configuration, account, MCP, Skill, permission, capability, feature, and recent-workspace discovery, plus streamed runs, approvals, cancellation, and shutdown.
 - A platform-adapter boundary with the Windows UI Automation module isolated for the next implementation.
 
 The browser build is Studio-only. Selection capture and Codex execution intentionally fail closed outside the Tauri desktop shell; there is no simulated runtime adapter.
@@ -57,8 +57,10 @@ React Studio                 Native Context Bar window
                        ├── PlatformAdapter
                        │      ├── macOS AXUIElement (implemented)
                        │      └── Windows UI Automation (next)
-                       ├── Codex environment scanner
-                       ├── MCP / Skill discovery
+                       ├── Codex app-server discovery client
+                       │      ├── model / config / account
+                       │      ├── MCP / Skill / permissions
+                       │      └── capabilities / threads
                        └── Codex app-server manager
                               ├── thread/start
                               ├── turn/start / interrupt
@@ -66,7 +68,7 @@ React Studio                 Native Context Bar window
                               └── approval responses
 ```
 
-The runtime protocol follows the current [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server.md). MCP configuration remains owned by Codex in `config.toml`, and Skills remain in Codex-discovered global, plugin, managed, or workspace locations.
+The runtime protocol follows the current [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server.md). Codex is the source of truth for runtime catalogs and effective settings; Latch keeps only its own agent choices and product preferences. MCP credentials remain owned by Codex, and Skills remain in Codex-discovered user, repository, system, or administrator locations. Named CLI profiles are discovered from the active Codex home and legacy config metadata because app-server does not expose a profile-list method.
 
 ## Security decisions
 

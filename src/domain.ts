@@ -6,6 +6,95 @@ export type WorkspaceMode = "none" | "active-application" | "ask-each-time" | "f
 export type RunStatus = "running" | "approval" | "completed" | "failed" | "cancelled";
 export type ContextBarState = "idle" | "running" | "approval" | "result" | "error";
 
+export interface CodexReasoningEffort {
+  id: string;
+  description: string;
+}
+
+export interface CodexServiceTier {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface CodexModel {
+  id: string;
+  model: string;
+  displayName: string;
+  description: string;
+  hidden: boolean;
+  isDefault: boolean;
+  supportedReasoningEfforts: CodexReasoningEffort[];
+  defaultReasoningEffort: string | null;
+  serviceTiers: CodexServiceTier[];
+  defaultServiceTier: string | null;
+  inputModalities: string[];
+  supportsPersonality: boolean;
+}
+
+export interface CodexPermissionProfile {
+  id: string;
+  description: string | null;
+  allowed: boolean;
+}
+
+export interface CodexEffectiveConfig {
+  model: string | null;
+  modelProvider: string | null;
+  reasoningEffort: string | null;
+  serviceTier: string | null;
+  approvalPolicy: string | null;
+  sandboxMode: string | null;
+  permissionProfile: string | null;
+}
+
+export interface CodexAccount {
+  signedIn: boolean;
+  accountType: string | null;
+  planType: string | null;
+  requiresOpenaiAuth: boolean;
+}
+
+export interface CodexRequirements {
+  allowedApprovalPolicies: string[] | null;
+  allowedSandboxModes: string[] | null;
+  allowedPermissionProfiles: Record<string, boolean> | null;
+  defaultPermissions: string | null;
+}
+
+export interface CodexProviderCapabilities {
+  namespaceTools: boolean;
+  imageGeneration: boolean;
+  webSearch: boolean;
+}
+
+export interface CodexExperimentalFeature {
+  name: string;
+  displayName: string | null;
+  description: string | null;
+  stage: string;
+  enabled: boolean;
+  defaultEnabled: boolean;
+}
+
+export interface CodexEnvironment {
+  codexHome: string;
+  configPath: string;
+  userAgent: string;
+  models: CodexModel[];
+  effectiveConfig: CodexEffectiveConfig;
+  account: CodexAccount;
+  profiles: string[];
+  mcpServers: McpServer[];
+  skills: CodexSkill[];
+  permissionProfiles: CodexPermissionProfile[];
+  requirements: CodexRequirements;
+  providerCapabilities: CodexProviderCapabilities;
+  experimentalFeatures: CodexExperimentalFeature[];
+  workspaces: Workspace[];
+  errors: string[];
+}
+
 export interface ConversationMessage {
   id: string;
   role: "user" | "assistant";
@@ -42,8 +131,9 @@ export interface CodexAgent {
   promptTemplate: string;
   model: string;
   reasoningEffort: string;
-  speed: string;
+  serviceTier: string;
   sandbox: SandboxMode;
+  permissionProfile?: string;
   approvalPolicy: ApprovalPolicy;
   workspaceMode: WorkspaceMode;
   fixedWorkspacePath?: string;
@@ -59,12 +149,13 @@ export interface CodexAgent {
 export interface McpServer {
   id: string;
   name: string;
-  transport: "stdio" | "http";
+  transport: "stdio" | "http" | "managed";
   enabled: boolean;
   authentication: "none" | "environment" | "bearer" | "oauth" | "unknown";
-  source: "global" | "project" | "managed";
-  health: "unknown" | "connected" | "error";
+  source: "effective" | "user" | "profile" | "project" | "system" | "enterprise" | "session" | "managed";
+  health: "unknown" | "connected" | "error" | "disabled";
   detail: string;
+  configurable: boolean;
   configPath: string;
 }
 
@@ -72,7 +163,7 @@ export interface CodexSkill {
   id: string;
   name: string;
   description: string;
-  source: "global" | "workspace" | "plugin" | "managed";
+  source: "user" | "repo" | "system" | "admin";
   enabled: boolean;
   compatible: boolean;
   pluginId?: string;
@@ -118,7 +209,6 @@ export interface AppSettings {
   storeHistory: boolean;
   storeSelectedText: boolean;
   redactWindowTitles: boolean;
-  codexHome: string;
   excludedApplications: string[];
 }
 

@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { seedSettings } from "./data/seed";
 import { LatchProvider } from "./store/LatchStore";
 
 const openerMocks = vi.hoisted(() => ({ openUrl: vi.fn(async () => undefined) }));
@@ -74,6 +75,24 @@ describe("Latch MVP", () => {
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(JSON.parse(localStorage.getItem("latch-bar-state-v1")!).settings.contextBarEnabled).toBe(true);
+  });
+
+  it("uses solid surfaces without exposing an appearance setting", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<LatchProvider><App /></LatchProvider>);
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.queryByText("Appearance")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Glass" })).not.toBeInTheDocument();
+    expect(container.querySelector(".app-shell")).not.toHaveClass("studio-surface-glass");
+  });
+
+  it("removes legacy appearance preferences", async () => {
+    const legacySettings: Record<string, unknown> = { ...seedSettings, studioAppearance: "glass", contextBarAppearance: "glass" };
+    localStorage.setItem("latch-bar-state-v1", JSON.stringify({ settings: legacySettings }));
+
+    render(<LatchProvider><App /></LatchProvider>);
+    expect(document.querySelector(".app-shell")).not.toHaveClass("studio-surface-glass");
   });
 
   it("opens a native run conversation in the Codex app", async () => {

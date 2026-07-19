@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { ArrowUpRight, Check, Copy, Ellipsis, LoaderCircle, MessageCircle, Pin, Replace, Send, ShieldAlert, Square, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import type { CodexAgent, ConversationMessage, NativeSelection, Run } from "../domain";
+import type { CodexAgent, CodexSkill, ConversationMessage, McpServer, NativeSelection, Run } from "../domain";
 import {
   continueNativeRun,
   copyNativeText,
@@ -33,6 +33,7 @@ type RpcMessage = {
 type RuntimeEvent = { runId: string; message: RpcMessage };
 type NativePointer = { x: number; y: number; inside: boolean };
 type Approval = { requestId: string | number; method: string; title: string; detail: string; params: Record<string, unknown> };
+const MAX_COMPACT_PINNED_AGENTS = 7;
 
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
 const asText = (value: unknown) => typeof value === "string" ? value : "";
@@ -41,6 +42,10 @@ const wait = (milliseconds: number) => new Promise<void>((resolve) => window.set
 export function ContextBarWindow() {
   const {
     agents,
+    mcps,
+    skills,
+    workspaces,
+    refreshCodexEnvironment,
     settings,
     togglePin,
     setContextAgentId,
@@ -66,6 +71,7 @@ export function ContextBarWindow() {
   const starting = useRef(false);
   const startedAt = useRef(0);
   const threadId = useRef<string | undefined>(undefined);
+  const resolvedModel = useRef<string>("");
   const resultRef = useRef("");
   const messagesRef = useRef<ConversationMessage[]>([]);
   const selectionRef = useRef<NativeSelection | null>(null);
@@ -74,7 +80,10 @@ export function ContextBarWindow() {
   const answerRef = useRef<HTMLDivElement>(null);
   const instructionRef = useRef<HTMLInputElement>(null);
   const enabledAgents = agents.filter((item) => item.enabled).sort((left, right) => left.order - right.order);
-  const pinnedAgents = enabledAgents.filter((item) => item.pinned).slice(0, 5);
+  const pinnedAgents = enabledAgents.filter((item) => item.pinned);
+  const visiblePinnedAgents = pinnedAgents.slice(0, MAX_COMPACT_PINNED_AGENTS);
+  const hiddenPinnedAgentCount = Math.max(0, pinnedAgents.length - visiblePinnedAgents.length);
+  const compactWidth = Math.min(430, Math.max(224, 160 + visiblePinnedAgents.length * 31 + (hiddenPinnedAgentCount ? 36 : 0)));
   const agent = agents.find((item) => item.id === agentId) ?? agentRef.current;
 
   useEffect(() => { resultRef.current = result; }, [result]);
@@ -82,13 +91,21 @@ export function ContextBarWindow() {
   useEffect(() => { selectionRef.current = selection; }, [selection]);
   useEffect(() => {
     if (!selection) return;
-    let height = 76;
-    if (state === "idle" && showAll) height = Math.min(360, 126 + Math.ceil(enabledAgents.length / 2) * 58);
+    // Keep transparent room above the compact bar for the agent-name tooltip.
+    // Native webview contents cannot paint outside their window bounds.
+    let height = 86;
+    let width = compactWidth;
+    if (state === "idle" && showAll) {
+      height = Math.min(320, 96 + Math.ceil(enabledAgents.length / 2) * 50);
+      width = 560;
+    }
     if (state === "running" || state === "result") height = instructionOpen ? 360 : 300;
-    if (state === "approval") height = 230;
-    if (state === "error") height = 205;
-    void resizeContextBar(height).catch(() => undefined);
-  }, [enabledAgents.length, instructionOpen, selection, showAll, state]);
+    if (state === "running" || state === "result") width = 660;
+    if (state === "approval") { height = 220; width = 620; }
+    if (state === "error") { height = 195; width = 620; }
+    const anchorX = selection.bounds.x + selection.bounds.width / 2;
+    void resizeContextBar(height, width, anchorX).catch(() => undefined);
+  }, [compactWidth, enabledAgents.length, instructionOpen, selection, showAll, state]);
   useEffect(() => {
     if (answerRef.current) answerRef.current.scrollTop = answerRef.current.scrollHeight;
   }, [messages, result, state]);
@@ -119,7 +136,7 @@ export function ContextBarWindow() {
       sourceIcon: source.application.slice(0, 2).toUpperCase(),
       workspacePath: activeAgent.fixedWorkspacePath,
       activity: activity ?? (status === "completed" ? "Result ready" : status === "approval" ? "Waiting for approval" : status),
-      model: activeAgent.model === "default" ? "Codex default" : activeAgent.model,
+      model: resolvedModel.current || (activeAgent.model === "default" ? "Codex default" : activeAgent.model),
       sandbox: activeAgent.sandbox,
       duration,
       startedAt: new Date(startedAt.current || Date.now()).toISOString(),
@@ -193,6 +210,7 @@ export function ContextBarWindow() {
     if (message.id === 1) {
       const response = asRecord(message.result);
       threadId.current = asText(asRecord(response.thread).id) || threadId.current;
+      resolvedModel.current = asText(response.model) || resolvedModel.current;
     }
     if (message.method === "error") {
       const rpcError = asRecord(message.params?.error);
@@ -242,6 +260,7 @@ export function ContextBarWindow() {
       if (previousRunId) void stopNativeRun(previousRunId).catch(() => undefined);
       runId.current = null;
       threadId.current = undefined;
+      resolvedModel.current = "";
       composerCapturedFocus.current = false;
       setSelection(payload);
       setAgentId(null);
@@ -277,7 +296,7 @@ export function ContextBarWindow() {
     };
   }, [handleMessage]);
 
-  const launchRun = async (runtimeAgent: CodexAgent, displayAgent: CodexAgent, source: NativeSelection, activity: string) => {
+  const launchRun = async (runtimeAgent: CodexAgent, displayAgent: CodexAgent, source: NativeSelection, activity: string, runtimeSkills: CodexSkill[] = skills, runtimeMcps: McpServer[] = mcps) => {
     setShowAll(false);
     setInstructionOpen(false);
     setAgentId(displayAgent.id);
@@ -294,6 +313,7 @@ export function ContextBarWindow() {
     setState("running");
     startedAt.current = Date.now();
     threadId.current = undefined;
+    resolvedModel.current = "";
     agentRef.current = displayAgent;
     starting.current = true;
     turnActive.current = true;
@@ -304,7 +324,7 @@ export function ContextBarWindow() {
         application: source.application,
         windowTitle: displayAgent.contextPolicy.includeWindowTitle ? source.windowTitle : undefined,
         workspace: runtimeAgent.fixedWorkspacePath,
-      });
+      }, runtimeSkills, runtimeMcps);
       runId.current = response.runId;
       saveRun("running", undefined, activity);
     } catch (caught) {
@@ -324,11 +344,19 @@ export function ContextBarWindow() {
     const source = selectionRef.current ?? selection;
     if (!source || starting.current) return;
     composerCapturedFocus.current = false;
-    const workspace = target.workspaceMode === "fixed" ? target.fixedWorkspacePath : undefined;
+    const workspace = target.workspaceMode === "fixed"
+      ? target.fixedWorkspacePath
+      : target.workspaceMode === "recent-project"
+        ? workspaces[0]?.path
+        : undefined;
     const runtimeAgent: CodexAgent = workspace
-      ? target
+      ? { ...target, workspaceMode: "fixed", fixedWorkspacePath: workspace }
       : { ...target, workspaceMode: "none", fixedWorkspacePath: undefined };
-    await launchRun(runtimeAgent, runtimeAgent, source, "Codex is working");
+    const usesNamedProfile = Boolean(target.codexProfile && target.codexProfile !== "default");
+    const environment = workspace || usesNamedProfile
+      ? await refreshCodexEnvironment(workspace, target.codexProfile)
+      : null;
+    await launchRun(runtimeAgent, runtimeAgent, source, "Codex is working", environment?.skills ?? skills, environment?.mcpServers ?? mcps);
   };
 
   const chooseAgent = async (target: CodexAgent) => {
@@ -493,13 +521,14 @@ export function ContextBarWindow() {
     return <button
       type="button"
       className={className}
+      data-agent-name={item.name}
       onPointerEnter={() => setHoveredAgentId(item.id)}
       onPointerLeave={() => setHoveredAgentId((current) => current === item.id ? null : current)}
       onClick={() => void chooseAgent(item)}
       aria-label={`Run ${item.name}`}
     >
       <b className={item.accent}>{item.icon}</b>
-      <span>{item.name.replace(" writing", "").replace(" engineer", "")}</span>
+      <span className="context-agent-tooltip" aria-hidden="true">{item.name}</span>
     </button>;
   };
 
@@ -514,12 +543,13 @@ export function ContextBarWindow() {
           <div className="context-idle-header">
             <div className="context-brand" title={`Selected in ${selection.application}`}><span /></div>
             <div className="context-pinned-agents">
-              {pinnedAgents.length > 0 ? pinnedAgents.map((item) => <span key={item.id}>{agentButton(item)}</span>) : <span className="context-empty-pins">No pinned agents</span>}
+              {visiblePinnedAgents.length > 0 ? visiblePinnedAgents.map((item) => <span key={item.id}>{agentButton(item)}</span>) : <span className="context-empty-pins">No pinned agents</span>}
             </div>
-            <button type="button" className={`context-more${showAll ? " is-active" : ""}`} onClick={() => void toggleAgentPicker()} aria-expanded={showAll} aria-label="Choose another agent"><Ellipsis size={18} /></button>
+            {hiddenPinnedAgentCount > 0 && <button type="button" className="context-overflow-count" onClick={() => void toggleAgentPicker()} aria-label={`Show ${hiddenPinnedAgentCount} more pinned agents`} title={`${hiddenPinnedAgentCount} more pinned agents`}>+{hiddenPinnedAgentCount}</button>}
+            <button type="button" className={`context-more${showAll ? " is-active" : ""}`} onClick={() => void toggleAgentPicker()} aria-expanded={showAll} aria-label="Choose another agent" title="Choose another agent"><Ellipsis size={16} /></button>
             <span className="context-divider" />
-            <button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open Studio"><ArrowUpRight size={16} /></button>
-            <button type="button" className="context-cancel" onClick={() => void close()} aria-label="Close"><X size={14} /></button>
+            <button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open Studio" title="Open Studio"><ArrowUpRight size={14} /></button>
+            <button type="button" className="context-cancel" onClick={() => void close()} aria-label="Close" title="Close"><X size={12} /></button>
           </div>
           {showAll && <div className="context-agent-picker" role="menu" aria-label="All agents">
             <header><div><strong>Choose an agent</strong><small>Runs here in the Context Bar</small></div><button type="button" onClick={() => void closeAgentPicker()} aria-label="Close agent picker"><X size={14} /></button></header>

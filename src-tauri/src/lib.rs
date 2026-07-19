@@ -1,3 +1,4 @@
+mod app_server;
 mod platform;
 mod runtime;
 mod scanner;

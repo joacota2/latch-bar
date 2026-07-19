@@ -8,8 +8,12 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State};
 
-const CONTEXT_BAR_WIDTH: f64 = 780.0;
-const CONTEXT_BAR_COMPACT_HEIGHT: f64 = 76.0;
+const CONTEXT_BAR_INITIAL_WIDTH: f64 = 420.0;
+const CONTEXT_BAR_MIN_WIDTH: f64 = 220.0;
+const CONTEXT_BAR_MAX_WIDTH: f64 = 720.0;
+// Includes transparent space above the 42px bar so native tooltips can render
+// outside the solid surface without being clipped by the webview boundary.
+const CONTEXT_BAR_COMPACT_HEIGHT: f64 = 86.0;
 const CONTEXT_BAR_MAX_HEIGHT: f64 = 360.0;
 const CONTEXT_BAR_MARGIN: f64 = 8.0;
 const CONTEXT_BAR_GAP: f64 = 10.0;
@@ -631,14 +635,14 @@ pub fn start_selection_monitor(
                         context_bar_position(
                             &selection.bounds,
                             monitor_work_area(monitor),
-                            CONTEXT_BAR_WIDTH,
+                            CONTEXT_BAR_INITIAL_WIDTH,
                             CONTEXT_BAR_COMPACT_HEIGHT,
                         )
                     })
                     .unwrap_or_else(|| {
                         LogicalPosition::new(
                             (selection.bounds.x + selection.bounds.width / 2.0
-                                - CONTEXT_BAR_WIDTH / 2.0)
+                                - CONTEXT_BAR_INITIAL_WIDTH / 2.0)
                                 .max(CONTEXT_BAR_MARGIN),
                             (selection.bounds.y + selection.bounds.height + CONTEXT_BAR_GAP)
                                 .max(CONTEXT_BAR_MARGIN),
@@ -649,7 +653,7 @@ pub fn start_selection_monitor(
                 // operations succeed.
                 window
                     .set_size(LogicalSize::new(
-                        CONTEXT_BAR_WIDTH,
+                        CONTEXT_BAR_INITIAL_WIDTH,
                         CONTEXT_BAR_COMPACT_HEIGHT,
                     ))
                     .and_then(|_| window.set_position(position))
@@ -685,35 +689,50 @@ pub fn hide_context_bar(app: AppHandle, state: State<PlatformState>) -> Result<(
 }
 
 #[tauri::command]
-pub fn resize_context_bar(app: AppHandle, height: f64) -> Result<(), String> {
+pub fn resize_context_bar(
+    app: AppHandle,
+    height: f64,
+    width: Option<f64>,
+    anchor_x: Option<f64>,
+) -> Result<(), String> {
     let window = app
         .get_webview_window("context-bar")
         .ok_or("Context Bar window is unavailable")?;
     let height = height.clamp(CONTEXT_BAR_COMPACT_HEIGHT, CONTEXT_BAR_MAX_HEIGHT);
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let size = window.outer_size().map_err(|error| error.to_string())?;
+    let current_width = size.width as f64 / scale;
+    let width = width
+        .unwrap_or(current_width)
+        .clamp(CONTEXT_BAR_MIN_WIDTH, CONTEXT_BAR_MAX_WIDTH);
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let centered_position = LogicalPosition::new(
+        anchor_x.unwrap_or(position.x as f64 / scale + current_width / 2.0) - width / 2.0,
+        position.y as f64 / scale,
+    );
     window
-        .set_size(LogicalSize::new(CONTEXT_BAR_WIDTH, height))
+        .set_size(LogicalSize::new(width, height))
         .map_err(|error| error.to_string())?;
 
     // Re-clamp after every expansion so results, approvals, and the agent picker stay
-    // inside the visible work area rather than growing behind the Dock or menu bar.
-    let position = window.outer_position().map_err(|error| error.to_string())?;
-    if let Some(monitor) = window
+    // inside the visible work area rather than growing behind the Dock or menu bar. Keep
+    // the previous center point stable as the compact bar grows or shrinks around it.
+    let target_position = if let Some(monitor) = window
         .current_monitor()
         .map_err(|error| error.to_string())?
     {
-        let scale = monitor.scale_factor();
-        let logical_position =
-            LogicalPosition::new(position.x as f64 / scale, position.y as f64 / scale);
-        let clamped = clamp_context_bar_position(
-            logical_position,
+        clamp_context_bar_position(
+            centered_position,
             monitor_work_area(&monitor),
-            CONTEXT_BAR_WIDTH,
+            width,
             height,
-        );
-        window
-            .set_position(clamped)
-            .map_err(|error| error.to_string())?;
-    }
+        )
+    } else {
+        centered_position
+    };
+    window
+        .set_position(target_position)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -872,11 +891,14 @@ mod tests {
         let position = context_bar_position(
             &bounds,
             work_area(),
-            CONTEXT_BAR_WIDTH,
+            CONTEXT_BAR_INITIAL_WIDTH,
             CONTEXT_BAR_COMPACT_HEIGHT,
         );
 
-        assert_eq!(position.y, 774.0);
+        assert_eq!(
+            position.y,
+            bounds.y - CONTEXT_BAR_GAP - CONTEXT_BAR_COMPACT_HEIGHT
+        );
         assert!(position.y + CONTEXT_BAR_COMPACT_HEIGHT <= 892.0);
     }
 
@@ -891,36 +913,42 @@ mod tests {
         let left = context_bar_position(
             &bounds,
             work_area(),
-            CONTEXT_BAR_WIDTH,
+            CONTEXT_BAR_INITIAL_WIDTH,
             CONTEXT_BAR_COMPACT_HEIGHT,
         );
         bounds.x = 1420.0;
         let right = context_bar_position(
             &bounds,
             work_area(),
-            CONTEXT_BAR_WIDTH,
+            CONTEXT_BAR_INITIAL_WIDTH,
             CONTEXT_BAR_COMPACT_HEIGHT,
         );
 
         assert_eq!(left.x, CONTEXT_BAR_MARGIN);
-        assert_eq!(right.x, 1440.0 - CONTEXT_BAR_MARGIN - CONTEXT_BAR_WIDTH);
+        assert_eq!(
+            right.x,
+            1440.0 - CONTEXT_BAR_MARGIN - CONTEXT_BAR_INITIAL_WIDTH
+        );
     }
 
     #[test]
     fn expanded_context_bar_stays_inside_the_visible_work_area() {
         let clamped = clamp_context_bar_position(
-            LogicalPosition::new(900.0, 820.0),
+            LogicalPosition::new(1200.0, 820.0),
             LogicalRect {
                 left: 80.0,
                 top: 24.0,
                 right: 1440.0,
                 bottom: 900.0,
             },
-            CONTEXT_BAR_WIDTH,
+            CONTEXT_BAR_INITIAL_WIDTH,
             300.0,
         );
 
-        assert_eq!(clamped.x, 652.0);
+        assert_eq!(
+            clamped.x,
+            1440.0 - CONTEXT_BAR_MARGIN - CONTEXT_BAR_INITIAL_WIDTH
+        );
         assert_eq!(clamped.y, 592.0);
     }
 }

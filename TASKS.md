@@ -11,7 +11,7 @@
 
 - [x] Build the desktop navigation, connection status, and Context Bar pause control.
 - [x] Build Agents with pin, enable, create, duplicate, edit, test, and delete flows.
-- [x] Build the complete profile editor: prompt, model, reasoning, speed, sandbox, approvals, workspace, MCPs, Skills, context, and output.
+- [x] Build the complete profile editor: prompt, model, reasoning, service tier, sandbox, approvals, workspace, MCPs, Skills, context, and output.
 - [x] Build Runs with running, approval, completed, failed, and cancelled states.
 - [x] Build MCP, Skills, Workspaces, and Settings screens.
 - [x] Build real run history and runtime inspection without seeded activity.

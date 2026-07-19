@@ -42,14 +42,14 @@ export function AgentsPage() {
       <section className="hero-banner">
         <div className="hero-icon"><Sparkles size={22} /></div>
         <div><span className="eyebrow">YOUR CODEX, EVERYWHERE</span><h2>One selection. The right expert.</h2><p>Highlight text in any app and your favorite Codex profiles appear right beside it.</p></div>
-        <div className="hero-preview" aria-label="Context bar preview"><span><i>✦</i> Improve</span><span><i>⌘</i> Review code</span><span><i>EN</i> Translate</span><b>···</b></div>
+        <div className="hero-preview" aria-label="Context bar preview"><span title="Improve writing" aria-label="Improve writing"><i>✦</i></span><span title="Staff engineer" aria-label="Staff engineer"><i>⌘</i></span><span title="Translate to English" aria-label="Translate to English"><i>EN</i></span><b>···</b></div>
       </section>
 
       <section className="content-section">
         <SectionLabel meta={<span className={settings.contextBarEnabled ? "live-label" : "live-label off"}><i /> {settings.contextBarEnabled ? "Showing in Context Bar" : "Context Bar paused"}</span>}>Pinned</SectionLabel>
         <div className="agent-card-grid">
           {pinned.map((agent) => <AgentCard agent={agent} key={agent.id} />)}
-          <button className="pin-placeholder" onClick={createAgent}><Plus size={19} /><span>Pin another agent</span><small>Up to 6 can appear in the bar</small></button>
+          <button className="pin-placeholder" onClick={createAgent}><Plus size={19} /><span>Pin another agent</span><small>Extra pins stay available in the picker</small></button>
         </div>
       </section>
 
