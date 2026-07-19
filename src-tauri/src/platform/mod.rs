@@ -33,6 +33,15 @@ pub struct NativeSelection {
     pub window_title: Option<String>,
     pub process_id: i32,
     pub bounds: SelectionBounds,
+    pub replacement_capability: ReplacementCapability,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReplacementCapability {
+    None,
+    Accessibility,
+    ClipboardPaste,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -119,6 +128,7 @@ struct SelectionKey {
     y: i64,
     width: i64,
     height: i64,
+    replacement_capability: ReplacementCapability,
 }
 
 fn selection_key(selection: &NativeSelection) -> SelectionKey {
@@ -133,6 +143,7 @@ fn selection_key(selection: &NativeSelection) -> SelectionKey {
         y: coordinate(selection.bounds.y),
         width: coordinate(selection.bounds.width),
         height: coordinate(selection.bounds.height),
+        replacement_capability: selection.replacement_capability,
     }
 }
 
@@ -790,6 +801,7 @@ mod tests {
                 width: 10.0,
                 height: 10.0,
             },
+            replacement_capability: ReplacementCapability::None,
         }
     }
 
@@ -845,6 +857,15 @@ mod tests {
         second.bounds.y = 0.12;
 
         assert_eq!(selection_key(&first), selection_key(&second));
+    }
+
+    #[test]
+    fn selection_key_detects_replacement_capability_changes() {
+        let first = selection("same text", "TextEdit");
+        let mut second = first.clone();
+        second.replacement_capability = ReplacementCapability::Accessibility;
+
+        assert_ne!(selection_key(&first), selection_key(&second));
     }
 
     #[cfg(target_os = "macos")]

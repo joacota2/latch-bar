@@ -55,12 +55,23 @@ function normalizePersisted(parsed: PersistedState | null) {
   if (!parsed) return null;
   const legacySeedIds = new Set(["run-security", "run-writing", "run-error", "run-plan"]);
   const agents = parsed.agents?.map((agent) => {
-    const current = { ...agent } as CodexAgent & { speed?: string };
+    const current = { ...agent } as Omit<CodexAgent, "outputPolicy"> & {
+      outputPolicy?: Partial<CodexAgent["outputPolicy"]>;
+      speed?: string;
+    };
     delete current.speed;
+    const defaultOutputPolicy = seedAgents.find((seed) => seed.id === current.id)?.outputPolicy ?? seedAgents[0].outputPolicy;
+    const mode = current.outputPolicy?.mode ?? defaultOutputPolicy.mode;
     return {
       ...current,
       model: current.model === "custom" ? "default" : current.model,
       serviceTier: current.serviceTier ?? "default",
+      outputPolicy: {
+        ...defaultOutputPolicy,
+        ...current.outputPolicy,
+        mode,
+        allowReplace: current.outputPolicy?.allowReplace ?? (current.outputPolicy?.mode ? mode !== "open-studio" : defaultOutputPolicy.allowReplace),
+      },
     } satisfies CodexAgent;
   });
   const settings = parsed.settings

@@ -21,6 +21,7 @@
 - [x] Implement idle, running, approval, result, and error states from native and app-server events.
 - [x] Implement pinned agents and the full agent menu.
 - [x] Implement real allow-once, deny, cancel, copy, replace, and Studio actions.
+- [x] Show the Context Bar for read-only selections and gate Replace by native editability plus per-agent policy.
 - [x] Add a prompt boundary that escapes untrusted selected content.
 - [x] Remove browser/runtime simulation and seeded run-history entries.
 
@@ -34,6 +35,7 @@
 - [x] Compile the native macOS application with the installed Rust toolchain.
 - [x] Implement macOS selection capture, selection bounds, secure-field exclusion, permission status, replacement, and paste fallback with AXUIElement/CoreGraphics.
 - [x] Add gesture-gated clipboard capture for custom editors with full pasteboard snapshot/conditional restore and transient-miss hysteresis.
+- [x] Revalidate editable targets and selected content before direct or clipboard-paste replacement.
 - [x] Keep the Context Bar inside visible work areas and full-screen Spaces without ordering Studio forward on overlay clicks.
 - [x] Keep the hidden Context Bar responsive, retry native selection delivery, and reject unsigned macOS release bundles.
 - [x] Add a cross-platform `PlatformAdapter` and an explicit Windows UI Automation module boundary.

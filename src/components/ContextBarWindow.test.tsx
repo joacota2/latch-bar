@@ -19,13 +19,16 @@ const mocks = vi.hoisted(() => ({
   setContextBarFocusable: vi.fn(),
   focusSelectionApplication: vi.fn(),
   openStudio: vi.fn(),
+  replaceNativeSelection: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => undefined),
   listen: vi.fn(async (event: string, handler: EventHandler) => {
     mocks.listeners.set(event, handler);
-    return () => mocks.listeners.delete(event);
+    return () => {
+      if (mocks.listeners.get(event) === handler) mocks.listeners.delete(event);
+    };
   }),
 }));
 
@@ -38,7 +41,7 @@ vi.mock("../services/runtime", () => ({
   isTauri: vi.fn(() => true),
   markContextBarReady: vi.fn(async () => undefined),
   openStudio: mocks.openStudio,
-  replaceNativeSelection: vi.fn(async () => ({ method: "accessibility" })),
+  replaceNativeSelection: mocks.replaceNativeSelection,
   resizeContextBar: mocks.resizeContextBar,
   setContextBarFocusable: mocks.setContextBarFocusable,
   respondToApproval: vi.fn(async () => undefined),
@@ -48,12 +51,13 @@ vi.mock("../services/runtime", () => ({
   stopNativeRun: mocks.stopNativeRun,
 }));
 
-const selection = (text: string, x: number): NativeSelection => ({
+const selection = (text: string, x: number, replacementCapability: NativeSelection["replacementCapability"] = "accessibility"): NativeSelection => ({
   text,
   application: "TextEdit",
   windowTitle: "Draft",
   processId: 42,
   bounds: { x, y: 80, width: 120, height: 20 },
+  replacementCapability,
 });
 
 function emit(event: string, payload: unknown) {
@@ -78,6 +82,7 @@ describe("Context Bar lifecycle", () => {
     mocks.setContextBarFocusable.mockResolvedValue(undefined);
     mocks.focusSelectionApplication.mockResolvedValue(undefined);
     mocks.openStudio.mockResolvedValue(undefined);
+    mocks.replaceNativeSelection.mockResolvedValue({ method: "accessibility" });
   });
 
   afterEach(cleanup);
@@ -231,5 +236,87 @@ describe("Context Bar lifecycle", () => {
 
     await user.click(screen.getByRole("button", { name: "Show 3 more pinned agents" }));
     expect(within(screen.getByRole("menu", { name: "All agents" })).getAllByRole("button", { name: /Run Pinned agent/ })).toHaveLength(10);
+  });
+
+  it("disables replacement for a read-only selection", async () => {
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+
+    emit("native-selection", selection("Read-only website text", 20, "none"));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
+    emit("codex-event", {
+      runId: "run-1",
+      message: {
+        method: "turn/completed",
+        params: { turn: { status: "completed", items: [{ type: "agentMessage", text: "A polished answer." }] } },
+      },
+    });
+
+    const replace = await screen.findByRole("button", { name: /Replace/ });
+    expect(replace).toBeDisabled();
+    expect(replace).toHaveAttribute("title", "The selected text is read-only");
+    await user.click(replace);
+    expect(mocks.replaceNativeSelection).not.toHaveBeenCalled();
+  });
+
+  it("enforces an agent that has replacement disabled", async () => {
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("latch-state-changed")).toBe(true));
+
+    emit("latch-state-changed", {
+      agents: seedAgents.map((agent) => agent.id === "improve-writing"
+        ? { ...agent, outputPolicy: { ...agent.outputPolicy, allowReplace: false } }
+        : agent),
+      runs: [],
+      settings: seedSettings,
+    });
+    await waitFor(() => {
+      expect(mocks.listeners.has("native-selection")).toBe(true);
+      expect(mocks.listeners.has("codex-event")).toBe(true);
+    });
+    emit("native-selection", selection("Editable text", 20, "accessibility"));
+    await user.click(await screen.findByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.listeners.has("codex-event")).toBe(true));
+    emit("codex-event", {
+      runId: "run-1",
+      message: {
+        method: "turn/completed",
+        params: { turn: { status: "completed", items: [{ type: "agentMessage", text: "A polished answer." }] } },
+      },
+    });
+
+    const replace = await screen.findByRole("button", { name: /Replace/ });
+    expect(replace).toBeDisabled();
+    expect(replace).toHaveAttribute("title", "Replacement is disabled for Improve writing");
+    await user.click(replace);
+    expect(mocks.replaceNativeSelection).not.toHaveBeenCalled();
+  });
+
+  it("replaces an editable selection when the agent allows it", async () => {
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+
+    emit("native-selection", selection("Editable custom control", 20, "clipboardPaste"));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
+    emit("codex-event", {
+      runId: "run-1",
+      message: {
+        method: "turn/completed",
+        params: { turn: { status: "completed", items: [{ type: "agentMessage", text: "Replacement text." }] } },
+      },
+    });
+
+    await screen.findByText("Replacement text.");
+    const replace = screen.getByRole("button", { name: /Replace/ });
+    await waitFor(() => expect(replace).toBeEnabled());
+    await user.click(replace);
+    await waitFor(() => expect(mocks.replaceNativeSelection).toHaveBeenCalledWith("Replacement text."));
+    expect(mocks.hideContextBar).toHaveBeenCalled();
   });
 });

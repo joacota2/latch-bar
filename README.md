@@ -6,8 +6,8 @@ Latch Bar is a contextual desktop surface for the Codex installation already on 
 
 - A polished Codex Studio with Agents, Runs, MCPs, Skills, Workspaces, and Settings.
 - Full agent CRUD and configuration for prompt, runtime, sandbox, approvals, workspace, context, tools, Skills, and output.
-- A separate non-activating, always-on-top Context Bar window driven by real macOS text selections, including full-screen Spaces.
-- Native Accessibility capture with a gesture-gated clipboard fallback for custom editors, secure-field exclusion, bounds positioning, direct replacement, and clipboard-paste replacement.
+- A separate non-activating, always-on-top Context Bar window driven by editable and read-only macOS text selections, including website content and full-screen Spaces.
+- Native Accessibility capture with a gesture-gated clipboard fallback for custom editors, secure-field exclusion, bounds positioning, per-selection replacement capabilities, direct replacement, and guarded clipboard-paste replacement.
 - Persistent local agents, settings, and real run history (no seeded or simulated runs).
 - A Tauri 2 shell with app-server-backed model, configuration, account, MCP, Skill, permission, capability, feature, and recent-workspace discovery, plus streamed runs, approvals, cancellation, and shutdown.
 - A platform-adapter boundary with the Windows UI Automation module isolated for the next implementation.
@@ -37,7 +37,7 @@ rustup update stable
 npm run tauri dev
 ```
 
-On first launch, open **Settings → Selection → Enable Accessibility** and allow Latch Bar under **System Settings → Privacy & Security → Accessibility**. Latch checks the permission silently on startup and prompts only after an explicit enable action. Select at least three characters in another application; the native Context Bar appears beside the selected range. When a custom editor does not expose its selected text through Accessibility, Latch can issue a targeted Command-C after a selection gesture. It snapshots the existing pasteboard first and restores it immediately only if no newer clipboard owner has written. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** writes through Accessibility and falls back to a targeted Command-V paste when the source control does not expose direct replacement.
+On first launch, open **Settings → Selection → Enable Accessibility** and allow Latch Bar under **System Settings → Privacy & Security → Accessibility**. Latch checks the permission silently on startup and prompts only after an explicit enable action. Select at least three characters in another application; the native Context Bar appears beside the selected range, including read-only website or document text when the source application exposes it. When a custom editor does not expose its selected text through Accessibility, Latch can issue a targeted Command-C after a selection gesture. It snapshots the existing pasteboard first and restores it immediately only if no newer clipboard owner has written. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** is enabled only when both the source control and the selected agent permit replacement. Direct Accessibility writes and guarded Command-V fallback both revalidate the original selection before changing it.
 
 macOS records privacy permissions against the app's code-signing identity. Ad-hoc builds are identified by a code hash, so rebuilding them invalidates an apparently enabled Accessibility entry. Persistent installed builds must therefore use an Apple signing identity:
 
@@ -78,6 +78,7 @@ The runtime protocol follows the current [Codex app-server documentation](https:
 - Selected text is escaped and placed in a delimited data block with explicit runtime rules.
 - Selected source text is not stored by default.
 - Clipboard capture is attempted only after a selection-shaped gesture; the previous pasteboard is restored immediately when its ownership generation is still unchanged.
+- Read-only and unknown selection targets fail closed: Replace stays disabled, and the native command independently rejects unsupported or stale targets.
 - Context Bar clicks do not order Studio forward; only the explicit redirect opens and focuses Studio. The bar is clamped to the visible work area as it opens and expands.
 - Screenshot context is off by default.
 - Password managers and secure fields are excluded from contextual capture.

@@ -218,4 +218,5 @@ export interface NativeSelection {
   windowTitle?: string;
   processId: number;
   bounds: { x: number; y: number; width: number; height: number };
+  replacementCapability: "none" | "accessibility" | "clipboardPaste";
 }

@@ -496,9 +496,18 @@ export function ContextBarWindow() {
   };
 
   const replace = async () => {
-    if (state !== "result" || !resultRef.current) return;
-    await replaceNativeSelection(resultRef.current);
-    await close();
+    const source = selectionRef.current;
+    const sourceAllowsReplacement = source?.replacementCapability === "accessibility" || source?.replacementCapability === "clipboardPaste";
+    if (state !== "result" || !resultRef.current || !agent?.outputPolicy.allowReplace || !sourceAllowsReplacement) return;
+    try {
+      await replaceNativeSelection(resultRef.current);
+      await close();
+    } catch (caught) {
+      const detail = caught instanceof Error ? caught.message : String(caught);
+      setError(detail);
+      setState("error");
+      setContextBarState("error");
+    }
   };
 
   const agentButton = (item: CodexAgent, picker = false) => {
@@ -535,6 +544,13 @@ export function ContextBarWindow() {
   if (!settings.contextBarEnabled || !selection) return null;
   const running = state === "running";
   const completed = state === "result";
+  const replacementDisabledReason = agent && !agent.outputPolicy.allowReplace
+    ? `Replacement is disabled for ${agent.name}`
+    : selection.replacementCapability !== "accessibility" && selection.replacementCapability !== "clipboardPaste"
+      ? "The selected text is read-only"
+      : undefined;
+  const sourceAllowsReplacement = selection.replacementCapability === "accessibility" || selection.replacementCapability === "clipboardPaste";
+  const canReplace = Boolean(completed && result && agent?.outputPolicy.allowReplace && sourceAllowsReplacement);
 
   return <div className={`context-wrap context-native state-${state}${showAll ? " picker-open" : ""}`}>
     <div className="context-bar" role="region" aria-label="Latch Context Bar" onPointerDownCapture={() => void setOverlayPinned(true)}>
@@ -564,7 +580,7 @@ export function ContextBarWindow() {
             <div className="context-run-actions">
               <button type="button" className="result-button" disabled={!completed} onClick={() => void openContinuation()}><MessageCircle size={14} /> Continue</button>
               {running && <button type="button" className="result-button danger" onClick={() => void cancel()}><Square size={12} fill="currentColor" /> Cancel</button>}
-              <button type="button" className="result-button primary" disabled={!completed || !result} onClick={() => void replace()}><Replace size={14} /> Replace</button>
+              <button type="button" className="result-button primary" disabled={!canReplace} title={replacementDisabledReason} onClick={() => void replace()}><Replace size={14} /> Replace</button>
               <button type="button" className="context-copy" disabled={!result} onClick={async () => { await copyNativeText(result); setCopied(true); }} aria-label="Copy response"><Copy size={15} /><span>{copied ? "Copied" : "Copy"}</span></button>
               <button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button>
               {completed && <button type="button" className="context-cancel" onClick={() => void close()} aria-label="Close"><X size={14} /></button>}

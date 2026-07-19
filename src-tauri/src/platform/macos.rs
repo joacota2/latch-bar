@@ -1,7 +1,10 @@
-use super::{NativeSelection, PlatformAdapter, PlatformStatus, ReplacementResult, SelectionBounds};
+use super::{
+    NativeSelection, PlatformAdapter, PlatformStatus, ReplacementCapability, ReplacementResult,
+    SelectionBounds,
+};
 use core_foundation::{
-    base::{CFGetTypeID, CFRelease, CFTypeRef, TCFType},
-    boolean::CFBoolean,
+    base::{CFGetTypeID, CFRelease, CFRetain, CFTypeRef, TCFType},
+    boolean::{CFBoolean, CFBooleanRef},
     dictionary::CFDictionary,
     runloop::CFRunLoop,
     string::{CFString, CFStringRef},
@@ -35,6 +38,22 @@ const MAX_CLIPBOARD_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 const MINIMUM_DRAG_DISTANCE_SQUARED: f64 = 16.0;
 
 type AXUIElementRef = *const c_void;
+
+struct OwnedAxElement(AXUIElementRef);
+
+impl OwnedAxElement {
+    fn into_raw(self) -> AXUIElementRef {
+        let element = self.0;
+        std::mem::forget(self);
+        element
+    }
+}
+
+impl Drop for OwnedAxElement {
+    fn drop(&mut self) {
+        unsafe { CFRelease(self.0 as CFTypeRef) }
+    }
+}
 
 #[repr(C)]
 struct CFRange {
@@ -82,15 +101,19 @@ extern "C" {
 }
 
 struct SelectionTarget {
-    element: AXUIElementRef,
+    element: Option<AXUIElementRef>,
     process_id: i32,
+    selected_text: String,
+    replacement_capability: ReplacementCapability,
 }
 
 unsafe impl Send for SelectionTarget {}
 
 impl Drop for SelectionTarget {
     fn drop(&mut self) {
-        unsafe { CFRelease(self.element as CFTypeRef) }
+        if let Some(element) = self.element {
+            unsafe { CFRelease(element as CFTypeRef) }
+        }
     }
 }
 
@@ -130,6 +153,12 @@ enum InteractionKind {
     ClearSelection,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InteractionOrigin {
+    Pointer,
+    Keyboard,
+}
+
 #[derive(Clone)]
 struct SelectionInteraction {
     generation: u64,
@@ -137,6 +166,7 @@ struct SelectionInteraction {
     process_id: i32,
     bounds: SelectionBounds,
     kind: InteractionKind,
+    origin: InteractionOrigin,
 }
 
 #[derive(Clone, Copy)]
@@ -155,7 +185,13 @@ struct GestureState {
 }
 
 impl GestureState {
-    fn record(&mut self, kind: InteractionKind, process_id: i32, bounds: SelectionBounds) {
+    fn record(
+        &mut self,
+        kind: InteractionKind,
+        origin: InteractionOrigin,
+        process_id: i32,
+        bounds: SelectionBounds,
+    ) {
         self.generation = self.generation.wrapping_add(1).max(1);
         self.latest = Some(SelectionInteraction {
             generation: self.generation,
@@ -163,6 +199,7 @@ impl GestureState {
             process_id,
             bounds,
             kind,
+            origin,
         });
     }
 }
@@ -208,6 +245,109 @@ unsafe fn copied_range(element: AXUIElementRef, name: &str) -> Option<CFRange> {
     let decoded = AXValueGetValue(value, 4, &mut range as *mut _ as *mut c_void);
     CFRelease(value);
     (decoded && range.location >= 0 && range.length > 0).then_some(range)
+}
+
+unsafe fn copied_boolean(element: AXUIElementRef, name: &str) -> Option<bool> {
+    let value = copied_value(element, name)?;
+    if CFGetTypeID(value) != CFBoolean::type_id() {
+        CFRelease(value);
+        return None;
+    }
+    Some(bool::from(CFBoolean::wrap_under_create_rule(
+        value as CFBooleanRef,
+    )))
+}
+
+unsafe fn attribute_is_settable(element: AXUIElementRef, name: &str) -> bool {
+    let name = attribute(name);
+    let mut settable = false;
+    AXUIElementIsAttributeSettable(element, name.as_concrete_TypeRef(), &mut settable) == 0
+        && settable
+}
+
+unsafe fn element_is_confidently_editable(element: AXUIElementRef) -> bool {
+    let mut current = element;
+    let mut owns_current = false;
+
+    for _ in 0..32 {
+        let subrole = copied_string(current, "AXSubrole").unwrap_or_default();
+        if subrole == "AXSecureTextField"
+            || copied_boolean(current, "AXEnabled").is_some_and(|enabled| !enabled)
+        {
+            if owns_current {
+                CFRelease(current as CFTypeRef);
+            }
+            return false;
+        }
+
+        if copied_boolean(current, "AXIsEditable") == Some(true) {
+            if owns_current {
+                CFRelease(current as CFTypeRef);
+            }
+            return true;
+        }
+
+        // Browser accessibility trees expose this relationship for contenteditable
+        // descendants without marking the surrounding AXWebArea itself as editable.
+        if let Some(editable_ancestor) = copied_value(current, "AXEditableAncestor") {
+            let editable_ancestor = editable_ancestor as AXUIElementRef;
+            let secure = copied_string(editable_ancestor, "AXSubrole").as_deref()
+                == Some("AXSecureTextField");
+            let enabled = copied_boolean(editable_ancestor, "AXEnabled") != Some(false);
+            CFRelease(editable_ancestor as CFTypeRef);
+            if !secure && enabled {
+                if owns_current {
+                    CFRelease(current as CFTypeRef);
+                }
+                return true;
+            }
+        }
+
+        let role = copied_string(current, "AXRole").unwrap_or_default();
+        if matches!(role.as_str(), "AXTextField" | "AXTextArea" | "AXComboBox")
+            && attribute_is_settable(current, "AXValue")
+        {
+            if owns_current {
+                CFRelease(current as CFTypeRef);
+            }
+            return true;
+        }
+
+        let parent = copied_value(current, "AXParent").map(|value| value as AXUIElementRef);
+        if owns_current {
+            CFRelease(current as CFTypeRef);
+        }
+        let Some(parent) = parent else {
+            return false;
+        };
+        current = parent;
+        owns_current = true;
+    }
+
+    if owns_current {
+        CFRelease(current as CFTypeRef);
+    }
+    false
+}
+
+fn replacement_capability_from_support(
+    direct_accessibility: bool,
+    editable: bool,
+) -> ReplacementCapability {
+    if direct_accessibility {
+        ReplacementCapability::Accessibility
+    } else if editable {
+        ReplacementCapability::ClipboardPaste
+    } else {
+        ReplacementCapability::None
+    }
+}
+
+unsafe fn replacement_capability(element: AXUIElementRef) -> ReplacementCapability {
+    replacement_capability_from_support(
+        attribute_is_settable(element, "AXSelectedText"),
+        element_is_confidently_editable(element),
+    )
 }
 
 unsafe fn selected_text(element: AXUIElementRef) -> Option<String> {
@@ -281,7 +421,7 @@ unsafe fn selected_element(mut element: AXUIElementRef) -> SelectedElementResult
     SelectedElementResult::None
 }
 
-unsafe fn selection_targets() -> Option<(Vec<AXUIElementRef>, i32)> {
+unsafe fn selection_targets() -> Option<(Vec<AXUIElementRef>, i32, Option<usize>, Option<usize>)> {
     let system = AXUIElementCreateSystemWide();
     if system.is_null() {
         return None;
@@ -354,13 +494,52 @@ unsafe fn selection_targets() -> Option<(Vec<AXUIElementRef>, i32)> {
     CFRelease(system as CFTypeRef);
 
     let mut targets = Vec::with_capacity(2);
-    if let Some(focused) = focused {
+    let focused_index = focused.map(|focused| {
+        let index = targets.len();
         targets.push(focused as AXUIElementRef);
-    }
-    if let Some(hit_tested) = hit_tested {
+        index
+    });
+    let hit_tested_index = hit_tested.map(|hit_tested| {
+        let index = targets.len();
         targets.push(hit_tested);
+        index
+    });
+    if process_id > 0 {
+        Some((targets, process_id, focused_index, hit_tested_index))
+    } else {
+        for target in targets {
+            CFRelease(target as CFTypeRef);
+        }
+        None
     }
-    (process_id > 0).then_some((targets, process_id))
+}
+
+fn fallback_target_index(
+    origin: InteractionOrigin,
+    focused_index: Option<usize>,
+    hit_tested_index: Option<usize>,
+) -> Option<usize> {
+    match origin {
+        InteractionOrigin::Pointer => hit_tested_index,
+        InteractionOrigin::Keyboard => focused_index,
+    }
+}
+
+fn ordered_target_indices(
+    origin: Option<InteractionOrigin>,
+    focused_index: Option<usize>,
+    hit_tested_index: Option<usize>,
+) -> [Option<usize>; 2] {
+    if origin == Some(InteractionOrigin::Pointer) {
+        // A webpage may leave keyboard focus in an editable composer while the user
+        // selects unrelated document text with the pointer. Do not let that stale
+        // focused selection override the element at the actual selection endpoint.
+        [hit_tested_index, None]
+    } else if origin == Some(InteractionOrigin::Keyboard) {
+        [focused_index, None]
+    } else {
+        [focused_index, hit_tested_index]
+    }
 }
 
 unsafe fn process_name(pid: i32) -> String {
@@ -371,6 +550,14 @@ unsafe fn process_name(pid: i32) -> String {
     let title = copied_string(application, "AXTitle").unwrap_or_else(|| format!("Process {pid}"));
     CFRelease(application as CFTypeRef);
     title
+}
+
+fn frontmost_process_id() -> i32 {
+    objc2_app_kit::NSWorkspace::sharedWorkspace()
+        .frontmostApplication()
+        .as_ref()
+        .map(|application| application.processIdentifier())
+        .unwrap_or_default()
 }
 
 unsafe fn window_title(element: AXUIElementRef) -> Option<String> {
@@ -545,6 +732,7 @@ fn record_mouse_event(state: &Arc<Mutex<GestureState>>, event_type: CGEventType,
     let kind = mouse_interaction_kind(dx * dx + dy * dy, saw_drag_event, click_count, shift_click);
     state.record(
         kind,
+        InteractionOrigin::Pointer,
         if process_id > 0 {
             process_id
         } else {
@@ -571,7 +759,12 @@ fn record_keyboard_event(state: &Arc<Mutex<GestureState>>, event: &CGEvent) {
         height: 18.0,
     });
     if let Ok(mut state) = state.lock() {
-        state.record(kind, event_process_id(event), bounds);
+        state.record(
+            kind,
+            InteractionOrigin::Keyboard,
+            event_process_id(event),
+            bounds,
+        );
     }
 }
 
@@ -926,7 +1119,8 @@ impl PlatformAdapter for MacOsAdapter {
             return Ok(None);
         }
         unsafe {
-            let Some((targets, process_id)) = selection_targets() else {
+            let Some((targets, process_id, focused_index, hit_tested_index)) = selection_targets()
+            else {
                 return Ok(None);
             };
             if process_id == std::process::id() as i32 {
@@ -954,27 +1148,52 @@ impl PlatformAdapter for MacOsAdapter {
 
             let interaction = self.latest_interaction()?;
             let title = targets.iter().find_map(|target| window_title(*target));
-            let mut targets = targets.into_iter();
             let mut selected = None;
             let mut secure = false;
-            while let Some(target) = targets.next() {
-                match selected_element(target) {
+            let targeting_origin = interaction
+                .as_ref()
+                .filter(|interaction| {
+                    interaction.occurred_at.elapsed() <= GESTURE_FRESHNESS
+                        && (interaction.process_id <= 0 || interaction.process_id == process_id)
+                })
+                .map(|interaction| interaction.origin);
+            let target_indices =
+                ordered_target_indices(targeting_origin, focused_index, hit_tested_index);
+            for target in target_indices
+                .into_iter()
+                .flatten()
+                .filter_map(|index| targets.get(index))
+            {
+                // selected_element owns and releases the element it traverses. Retain a
+                // separate reference so the original targets remain available for the
+                // guarded clipboard fallback classification below.
+                let retained = CFRetain(*target as CFTypeRef) as AXUIElementRef;
+                match selected_element(retained) {
                     SelectedElementResult::Selection(element, text) => {
                         selected = Some((element, text));
-                        for unused in targets {
-                            CFRelease(unused as CFTypeRef);
-                        }
                         break;
                     }
                     SelectedElementResult::Secure => {
                         secure = true;
-                        for unused in targets {
-                            CFRelease(unused as CFTypeRef);
-                        }
                         break;
                     }
                     SelectedElementResult::None => {}
                 }
+            }
+            let fallback_target = if !secure && selected.is_none() {
+                interaction
+                    .as_ref()
+                    .and_then(|interaction| {
+                        fallback_target_index(interaction.origin, focused_index, hit_tested_index)
+                    })
+                    .and_then(|index| targets.get(index).copied())
+                    .filter(|target| element_is_confidently_editable(*target))
+                    .map(|target| OwnedAxElement(CFRetain(target as CFTypeRef) as AXUIElementRef))
+            } else {
+                None
+            };
+            for target in targets {
+                CFRelease(target as CFTypeRef);
             }
             if secure {
                 self.mark_interaction_processed(interaction.as_ref())?;
@@ -1008,23 +1227,28 @@ impl PlatformAdapter for MacOsAdapter {
                         return Ok(None);
                     }
                 };
-                let application_element = AXUIElementCreateApplication(process_id);
-                if !application_element.is_null() {
-                    *self
-                        .target
-                        .lock()
-                        .map_err(|_| "Selection target is unavailable")? = Some(SelectionTarget {
-                        element: application_element,
-                        process_id,
-                    });
-                }
+                let replacement_capability = if fallback_target.is_some() {
+                    ReplacementCapability::ClipboardPaste
+                } else {
+                    ReplacementCapability::None
+                };
                 let selection = NativeSelection {
-                    text,
+                    text: text.clone(),
                     application,
                     window_title: title,
                     process_id,
                     bounds: interaction.bounds,
+                    replacement_capability,
                 };
+                *self
+                    .target
+                    .lock()
+                    .map_err(|_| "Selection target is unavailable")? = Some(SelectionTarget {
+                    element: fallback_target.map(OwnedAxElement::into_raw),
+                    process_id,
+                    selected_text: text,
+                    replacement_capability,
+                });
                 *self
                     .fallback_selection
                     .lock()
@@ -1045,10 +1269,11 @@ impl PlatformAdapter for MacOsAdapter {
                 *cached = None;
             }
             let (focused, text) = selected.expect("selection checked above");
+            let focused = OwnedAxElement(focused);
             // Some WebKit/Electron controls expose AXSelectedText but not AXBoundsForRange.
             // Cache the pointer fallback for this selection so clicking the Context Bar does
             // not make the unchanged selection look new just because the pointer moved.
-            let bounds = if let Some(bounds) = selection_bounds(focused) {
+            let bounds = if let Some(bounds) = selection_bounds(focused.0) {
                 if let Ok(mut cached) = self.fallback_bounds.lock() {
                     *cached = None;
                 }
@@ -1082,19 +1307,24 @@ impl PlatformAdapter for MacOsAdapter {
                     bounds
                 }
             };
+            let replacement_capability = replacement_capability(focused.0);
+            let selection_target = SelectionTarget {
+                element: Some(focused.into_raw()),
+                process_id,
+                selected_text: text.clone(),
+                replacement_capability,
+            };
             *self
                 .target
                 .lock()
-                .map_err(|_| "Selection target is unavailable")? = Some(SelectionTarget {
-                element: focused,
-                process_id,
-            });
+                .map_err(|_| "Selection target is unavailable")? = Some(selection_target);
             let selection = NativeSelection {
                 text,
                 application,
                 window_title: title,
                 process_id,
                 bounds,
+                replacement_capability,
             };
             *self
                 .last_selection
@@ -1112,31 +1342,64 @@ impl PlatformAdapter for MacOsAdapter {
         let target = target
             .as_ref()
             .ok_or("The original selection is no longer available")?;
-        let replacement = CFString::new(text);
-        let selected_text = attribute("AXSelectedText");
-        let mut settable = false;
-        let can_set = unsafe {
-            AXUIElementIsAttributeSettable(
-                target.element,
-                selected_text.as_concrete_TypeRef(),
-                &mut settable,
-            ) == 0
-                && settable
-        };
-        let replaced = can_set
-            && unsafe {
-                AXUIElementSetAttributeValue(
-                    target.element,
-                    selected_text.as_concrete_TypeRef(),
-                    replacement.as_CFTypeRef(),
-                ) == 0
-            };
-        if replaced {
-            Ok(ReplacementResult {
-                method: "accessibility",
-            })
-        } else {
-            self.paste_to_target(text, target.process_id)
+        if frontmost_process_id() != target.process_id {
+            return Err("The source application is no longer active".into());
+        }
+
+        match target.replacement_capability {
+            ReplacementCapability::None => Err("The original selection is not editable".into()),
+            ReplacementCapability::Accessibility => {
+                let element = target
+                    .element
+                    .ok_or("The editable selection target is no longer available")?;
+                let mut element_process_id = 0;
+                let target_is_current = unsafe {
+                    AXUIElementGetPid(element, &mut element_process_id) == 0
+                        && element_process_id == target.process_id
+                        && selected_text(element).as_deref() == Some(&target.selected_text)
+                        && attribute_is_settable(element, "AXSelectedText")
+                };
+                if !target_is_current {
+                    return Err("The original editable selection has changed".into());
+                }
+
+                let replacement = CFString::new(text);
+                let selected_text = attribute("AXSelectedText");
+                let replaced = unsafe {
+                    AXUIElementSetAttributeValue(
+                        element,
+                        selected_text.as_concrete_TypeRef(),
+                        replacement.as_CFTypeRef(),
+                    ) == 0
+                };
+                if !replaced {
+                    return Err("The source application rejected the replacement".into());
+                }
+                Ok(ReplacementResult {
+                    method: "accessibility",
+                })
+            }
+            ReplacementCapability::ClipboardPaste => {
+                let element = target
+                    .element
+                    .ok_or("The editable selection target is no longer available")?;
+                let mut element_process_id = 0;
+                let target_is_editable = unsafe {
+                    AXUIElementGetPid(element, &mut element_process_id) == 0
+                        && element_process_id == target.process_id
+                        && element_is_confidently_editable(element)
+                };
+                if !target_is_editable {
+                    return Err("The original editable control is no longer available".into());
+                }
+
+                let current_text = capture_via_clipboard(target.process_id)?
+                    .ok_or("The original editable selection has changed")?;
+                if current_text != target.selected_text {
+                    return Err("The original editable selection has changed".into());
+                }
+                self.paste_to_target(text, target.process_id)
+            }
         }
     }
 
@@ -1149,6 +1412,66 @@ impl PlatformAdapter for MacOsAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_replacement_takes_precedence_over_paste() {
+        assert_eq!(
+            replacement_capability_from_support(true, true),
+            ReplacementCapability::Accessibility
+        );
+    }
+
+    #[test]
+    fn editable_custom_controls_use_guarded_paste() {
+        assert_eq!(
+            replacement_capability_from_support(false, true),
+            ReplacementCapability::ClipboardPaste
+        );
+    }
+
+    #[test]
+    fn unknown_or_read_only_elements_cannot_be_replaced() {
+        assert_eq!(
+            replacement_capability_from_support(false, false),
+            ReplacementCapability::None
+        );
+    }
+
+    #[test]
+    fn pointer_fallback_uses_only_the_hit_tested_element() {
+        assert_eq!(
+            fallback_target_index(InteractionOrigin::Pointer, Some(0), Some(1)),
+            Some(1)
+        );
+        assert_eq!(
+            fallback_target_index(InteractionOrigin::Pointer, Some(0), None),
+            None
+        );
+    }
+
+    #[test]
+    fn keyboard_fallback_uses_only_the_focused_element() {
+        assert_eq!(
+            fallback_target_index(InteractionOrigin::Keyboard, Some(0), Some(1)),
+            Some(0)
+        );
+        assert_eq!(
+            fallback_target_index(InteractionOrigin::Keyboard, None, Some(0)),
+            None
+        );
+    }
+
+    #[test]
+    fn gesture_selection_uses_only_its_origin_target() {
+        assert_eq!(
+            ordered_target_indices(Some(InteractionOrigin::Pointer), Some(0), Some(1)),
+            [Some(1), None]
+        );
+        assert_eq!(
+            ordered_target_indices(Some(InteractionOrigin::Keyboard), Some(0), Some(1)),
+            [Some(0), None]
+        );
+    }
 
     #[test]
     fn command_a_and_shift_navigation_arm_selection_capture() {
@@ -1208,6 +1531,7 @@ mod tests {
                 height: 18.0,
             },
             kind: InteractionKind::SelectionCandidate,
+            origin: InteractionOrigin::Pointer,
         };
 
         assert!(adapter

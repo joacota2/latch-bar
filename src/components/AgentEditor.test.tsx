@@ -3,6 +3,8 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
+import { seedAgents } from "../data/seed";
+import type { CodexAgent } from "../domain";
 import { LatchProvider, useLatch } from "../store/LatchStore";
 import { AgentEditor } from "./AgentEditor";
 
@@ -90,5 +92,32 @@ describe("Codex-discovered agent options", () => {
     await user.click(screen.getByRole("button", { name: /MCPs & Skills/ }));
     expect(screen.getByRole("button", { name: /Docs/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Review/ })).toBeInTheDocument();
+  });
+
+  it("migrates replacement policy and keeps replace mode consistent when disabled", async () => {
+    const legacyAgent = structuredClone(seedAgents[0]) as Omit<CodexAgent, "outputPolicy"> & {
+      outputPolicy: Partial<CodexAgent["outputPolicy"]>;
+    };
+    delete legacyAgent.outputPolicy.allowReplace;
+    legacyAgent.outputPolicy.mode = "replace";
+    localStorage.setItem("latch-bar-state-v1", JSON.stringify({ agents: [legacyAgent], runs: [] }));
+    mockIPC((command) => command === "scan_codex_environment" ? environment : undefined);
+    const user = userEvent.setup();
+
+    render(<LatchProvider><Harness /></LatchProvider>);
+    await screen.findByRole("complementary", { name: "Agent editor" });
+    await user.click(screen.getByRole("button", { name: "Result" }));
+
+    const replacement = screen.getByRole("switch", { name: "Allow replacement" });
+    expect(replacement).toHaveAttribute("aria-checked", "true");
+    await user.click(replacement);
+    expect(replacement).toHaveAttribute("aria-checked", "false");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const persisted = JSON.parse(localStorage.getItem("latch-bar-state-v1")!);
+    expect(persisted.agents[0].outputPolicy).toMatchObject({
+      mode: "preview",
+      allowReplace: false,
+    });
   });
 });
