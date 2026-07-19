@@ -83,6 +83,7 @@ describe("Runtime IPC", () => {
         resolvedSkills: [{ id: "review", name: "Review", path: "/skills/review/SKILL.md" }],
         resolvedMcpServers: ["docs"],
       }),
+      titleSource: expect.stringContaining(`Task: ${agent.name}`),
     }));
   });
 });

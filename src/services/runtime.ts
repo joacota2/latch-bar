@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, McpServer, Workspace } from "../domain";
-import { buildPrompt, type SelectionInput } from "./promptBuilder";
+import { buildPrompt, buildTitleSource, type SelectionInput } from "./promptBuilder";
 
 export interface RuntimeStatus {
   available: boolean;
@@ -60,6 +60,7 @@ export async function scanCodexEnvironment(workspacePath?: string, profile?: str
 
 export async function startNativeRun(agent: CodexAgent, input: SelectionInput, skills: CodexSkill[] = [], mcps: McpServer[] = []) {
   const prompt = buildPrompt(agent, input);
+  const titleSource = buildTitleSource(agent, input);
   if (!isTauri()) throw new Error("Native Codex runs require the Latch Bar desktop app");
   const resolvedSkills = skills
     .filter((skill) => agent.enabledSkills.includes(skill.id) && skill.path)
@@ -68,6 +69,7 @@ export async function startNativeRun(agent: CodexAgent, input: SelectionInput, s
   return invoke<{ runId: string; prompt: string }>("start_codex_run", {
     agent: { ...agent, resolvedSkills, resolvedMcpServers },
     prompt,
+    titleSource,
   });
 }
 

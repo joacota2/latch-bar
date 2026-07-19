@@ -838,7 +838,12 @@ fn parse_workspaces(items: Vec<Value>) -> Vec<WorkspaceSummary> {
         let Some(path) = item.get("cwd").and_then(Value::as_str) else {
             continue;
         };
-        if path.is_empty() {
+        let workspace_path = Path::new(path);
+        let latch_projectless_path = Path::new("Documents").join("Codex").join("Latch Bar");
+        if path.is_empty()
+            || workspace_path.parent().is_none()
+            || workspace_path.ends_with(latch_projectless_path)
+        {
             continue;
         }
         let last_used_at = item
@@ -1081,6 +1086,8 @@ mod tests {
             json!({ "cwd": "/repo", "updatedAt": 10, "gitInfo": { "branch": "old" } }),
             json!({ "cwd": "/repo", "recencyAt": 20, "gitInfo": { "branch": "main" } }),
             json!({ "cwd": "/other", "updatedAt": 15, "gitInfo": null }),
+            json!({ "cwd": "/", "updatedAt": 30, "gitInfo": null }),
+            json!({ "cwd": "/Users/test/Documents/Codex/Latch Bar", "updatedAt": 40, "gitInfo": null }),
         ]);
 
         assert_eq!(workspaces.len(), 2);

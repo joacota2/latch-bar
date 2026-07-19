@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seedAgents } from "../data/seed";
-import { buildPrompt } from "./promptBuilder";
+import { buildPrompt, buildTitleSource } from "./promptBuilder";
 
 describe("buildPrompt", () => {
   it("isolates selected content and escapes prompt-like markup", () => {
@@ -22,5 +22,16 @@ describe("buildPrompt", () => {
     expect(prompt).toContain("1234");
     expect(prompt).not.toContain("12345");
     expect(prompt).not.toContain("Application: Mail");
+  });
+
+  it("builds compact title context from the agent task and selection", () => {
+    const source = buildTitleSource(seedAgents[0], {
+      selection: "Launch   notes\nfor the new release",
+      application: "Notes",
+    });
+
+    expect(source).toContain(`Task: ${seedAgents[0].name}`);
+    expect(source).toContain("Selected content: Launch notes for the new release");
+    expect(source).not.toContain("<runtime_rules>");
   });
 });
