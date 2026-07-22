@@ -90,5 +90,3 @@ The runtime protocol follows the current [Codex app-server documentation](https:
 - Context Bar clicks do not order Studio forward; only the explicit redirect opens and focuses Studio. The bar is clamped to the visible work area as it opens and expands.
 - Screenshot context is off by default.
 - Password managers and secure fields are excluded from contextual capture.
-
-See `TASKS.md` for the implementation and platform-release checklist.
