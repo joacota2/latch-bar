@@ -61,6 +61,7 @@ export function ContextBarWindow() {
   const [approval, setApproval] = useState<Approval | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [instructionOpen, setInstructionOpen] = useState(false);
   const [instruction, setInstruction] = useState("");
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -142,9 +143,9 @@ export function ContextBarWindow() {
       startedAt: new Date(startedAt.current || Date.now()).toISOString(),
       finalResponse,
       threadId: threadId.current,
-      conversation,
+      conversation: settings.storeSelectedText ? conversation : conversation.filter((message) => message.id !== "selected-text"),
     });
-  }, [upsertRun]);
+  }, [settings.storeSelectedText, upsertRun]);
 
   const finish = useCallback(async (message: RpcMessage) => {
     const completedRunId = runId.current;
@@ -182,7 +183,10 @@ export function ContextBarWindow() {
       void stopNativeRun(completedRunId).catch(() => undefined);
       runId.current = null;
     }
-    await setOverlayPinned(composerCapturedFocus.current && !shouldHide);
+    // A completed result must stay alive even when the source application stops
+    // exposing its selection. The user, rather than the selection monitor, owns
+    // the result until they replace, close, cancel, or redirect it.
+    await setOverlayPinned(!shouldHide);
     if (shouldHide) {
       agentRef.current = null;
       selectionRef.current = null;
@@ -204,7 +208,7 @@ export function ContextBarWindow() {
       turnActive.current = false;
       starting.current = false;
       if (failedRunId) void stopNativeRun(failedRunId).catch(() => undefined);
-      void setOverlayPinned(composerCapturedFocus.current).catch(() => undefined);
+      void setOverlayPinned(true).catch(() => undefined);
       return;
     }
     if (message.id === 1) {
@@ -273,6 +277,7 @@ export function ContextBarWindow() {
       messagesRef.current = [];
       setMessages([]);
       setCopied(false);
+      setCopiedMessageId(null);
     });
     const unlistenRuntime = listen<RuntimeEvent>("codex-event", ({ payload }) => {
       if (!runId.current && starting.current) runId.current = payload.runId;
@@ -305,9 +310,11 @@ export function ContextBarWindow() {
     setContextBarState("running");
     resultRef.current = "";
     setResult("");
-    messagesRef.current = [];
-    setMessages([]);
+    const initialMessages: ConversationMessage[] = [{ id: "selected-text", role: "user", text: source.text }];
+    messagesRef.current = initialMessages;
+    setMessages(initialMessages);
     setCopied(false);
+    setCopiedMessageId(null);
     setError("");
     setApproval(null);
     setState("running");
@@ -334,7 +341,7 @@ export function ContextBarWindow() {
       setContextBarState("error");
       runId.current = null;
       turnActive.current = false;
-      await setOverlayPinned(composerCapturedFocus.current);
+      await setOverlayPinned(true);
     } finally {
       starting.current = false;
     }
@@ -510,6 +517,11 @@ export function ContextBarWindow() {
     }
   };
 
+  const copyMessage = async (message: ConversationMessage) => {
+    await copyNativeText(message.text);
+    setCopiedMessageId(message.id);
+  };
+
   const agentButton = (item: CodexAgent, picker = false) => {
     const active = hoveredAgentId === item.id;
     const launching = launchingAgentId === item.id;
@@ -589,7 +601,16 @@ export function ContextBarWindow() {
           {running && <div className="context-stream-progress"><i /></div>}
           <div ref={answerRef} className={`context-answer context-conversation${running ? " is-streaming" : ""}`} role="log" aria-live="polite">
             {messages.map((message) => <article key={message.id} className={`context-chat-message ${message.role}`}>
-              <span>{message.role === "user" ? "You" : agent.name}</span>
+              <header>
+                <span>{message.id === "selected-text" ? "Selected text" : message.role === "user" ? "You" : agent.name}</span>
+                <button
+                  type="button"
+                  className="context-message-copy"
+                  onClick={() => void copyMessage(message)}
+                  aria-label={message.id === "selected-text" ? "Copy selected text" : message.role === "user" ? "Copy your message" : `Copy ${agent.name} response`}
+                  title={copiedMessageId === message.id ? "Copied" : "Copy to clipboard"}
+                >{copiedMessageId === message.id ? <Check size={11} /> : <Copy size={11} />}</button>
+              </header>
               <p>{message.text}</p>
             </article>)}
             {running && <article className="context-chat-message assistant is-streaming">

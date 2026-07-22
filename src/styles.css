@@ -434,6 +434,12 @@ kbd { border: 1px solid #d8dcd4; border-bottom-width: 2px; border-radius: 5px; b
 .variable-chips button { height: 21px; border: 1px solid #dfe3dc; background: #f4f6f1; border-radius: 5px; color: #687269; font: 7.5px ui-monospace, monospace; cursor: pointer; }
 .field-hint { margin: 9px 0 0; color: #929993; font-size: 7.5px; line-height: 1.45; }
 .field-hint code { color: #697b55; }
+.agent-config-section { display: flex; min-height: 100%; flex-direction: column; }
+.agent-json-editor { width: 100%; min-height: 390px; flex: 1; resize: vertical; padding: 13px; border: 1px solid #cfd5cc; border-radius: 8px; outline: 0; background: #172019; color: #e5ece6; font: 9px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
+.agent-json-editor:focus { border-color: #86a653; box-shadow: 0 0 0 2px rgba(134,166,83,.12); }
+.agent-config-error { margin: 9px 0 0; padding: 8px 10px; border: 1px solid #e6c3bb; border-radius: 7px; background: #fff4f1; color: #a65345; font-size: 8px; line-height: 1.45; }
+.agent-config-actions { margin-top: 10px; display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.agent-config-actions p { flex: 1; margin: 0; color: #8d958e; font-size: 7.5px; line-height: 1.45; }
 .inherit-note { margin-top: 9px; min-height: 30px; border-radius: 7px; background: #f3f7eb; color: #788570; padding: 7px 9px; display: flex; align-items: center; gap: 5px; font-size: 7.5px; }
 .inherit-note span { color: #6f913d; font-weight: 700; }
 .segmented-control { margin-top: 10px; padding: 3px; border-radius: 8px; background: #eef1eb; display: grid; grid-template-columns: repeat(5,1fr); }
@@ -583,11 +589,16 @@ kbd { border: 1px solid #d8dcd4; border-bottom-width: 2px; border-radius: 5px; b
 .context-conversation { display: flex; flex-direction: column; gap: 10px; white-space: normal; }
 .context-chat-message { width: min(88%, 620px); padding: 9px 11px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; animation: message-in .18s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes message-in { from { opacity: 0; transform: translateY(4px); } }
-.context-chat-message > span { display: block; margin-bottom: 5px; color: #8f9a92; font-size: 7.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; }
+.context-chat-message > span, .context-chat-message > header span { display: block; color: #8f9a92; font-size: 7.5px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; }
+.context-chat-message > span { margin-bottom: 5px; }
+.context-chat-message > header { min-height: 17px; margin: -3px -4px 3px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.context-message-copy { width: 21px; height: 21px; flex: 0 0 21px; border: 0; border-radius: 5px; display: grid; place-items: center; background: transparent; color: #7f8b82; cursor: pointer; opacity: .65; transition: opacity .15s ease, color .15s ease, background .15s ease, transform .1s ease; }
+.context-chat-message:hover .context-message-copy, .context-message-copy:focus-visible, .context-message-copy.is-native-hovered { opacity: 1; color: #e7ede8; background: rgba(255,255,255,.08); }
+.context-message-copy:active { transform: scale(.88); }
 .context-chat-message p { margin: 0; color: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .context-chat-message.assistant { align-self: flex-start; background: #222c25; color: #e8eee9; }
 .context-chat-message.user { align-self: flex-end; border-color: rgba(201,243,107,.25); background: rgba(201,243,107,.14); color: #f1f6ed; }
-.context-chat-message.user > span { color: var(--lime); }
+.context-chat-message.user > span, .context-chat-message.user > header span { color: var(--lime); }
 .context-chat-message.is-streaming { min-height: 72px; }
 .context-stream-placeholder { height: 100%; display: flex; align-items: center; justify-content: center; gap: 9px; color: #909a93; }
 .context-stream-placeholder i { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 0 rgba(201,243,107,.3); animation: context-pulse 1.2s ease-out infinite; }

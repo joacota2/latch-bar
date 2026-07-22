@@ -10,6 +10,7 @@ type EventHandler = (event: { payload: unknown }) => void;
 
 const mocks = vi.hoisted(() => ({
   listeners: new Map<string, EventHandler>(),
+  copyNativeText: vi.fn(),
   continueNativeRun: vi.fn(),
   startNativeRun: vi.fn(),
   stopNativeRun: vi.fn(),
@@ -34,7 +35,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("../services/runtime", () => ({
   continueNativeRun: mocks.continueNativeRun,
-  copyNativeText: vi.fn(async () => undefined),
+  copyNativeText: mocks.copyNativeText,
   focusSelectionApplication: mocks.focusSelectionApplication,
   hideContextBar: mocks.hideContextBar,
   interruptNativeRun: vi.fn(async () => undefined),
@@ -72,8 +73,10 @@ describe("Context Bar lifecycle", () => {
     mocks.listeners.clear();
     vi.clearAllMocks();
     mocks.startNativeRun
+      .mockReset()
       .mockResolvedValueOnce({ runId: "run-1", prompt: "first" })
       .mockResolvedValueOnce({ runId: "run-2", prompt: "second" });
+    mocks.copyNativeText.mockResolvedValue(undefined);
     mocks.continueNativeRun.mockResolvedValue(undefined);
     mocks.stopNativeRun.mockResolvedValue(undefined);
     mocks.setOverlayPinned.mockResolvedValue(undefined);
@@ -82,7 +85,7 @@ describe("Context Bar lifecycle", () => {
     mocks.setContextBarFocusable.mockResolvedValue(undefined);
     mocks.focusSelectionApplication.mockResolvedValue(undefined);
     mocks.openStudio.mockResolvedValue(undefined);
-    mocks.replaceNativeSelection.mockResolvedValue({ method: "accessibility" });
+    mocks.replaceNativeSelection.mockReset().mockResolvedValue({ method: "accessibility" });
   });
 
   afterEach(cleanup);
@@ -111,7 +114,7 @@ describe("Context Bar lifecycle", () => {
 
     expect(await screen.findByText("The answer stays in the Context Bar.")).toBeInTheDocument();
     expect(mocks.stopNativeRun).not.toHaveBeenCalled();
-    await waitFor(() => expect(mocks.setOverlayPinned).toHaveBeenLastCalledWith(false));
+    await waitFor(() => expect(mocks.setOverlayPinned).toHaveBeenLastCalledWith(true));
 
     emit("native-selection", selection("Second selection", 260));
     await waitFor(() => expect(mocks.stopNativeRun).toHaveBeenCalledWith("run-1"));
@@ -143,6 +146,11 @@ describe("Context Bar lifecycle", () => {
       },
     });
     await screen.findByText("Improved sentence.");
+    expect(screen.getByText("A sentence to improve").closest("article")).toHaveClass("context-chat-message", "user");
+    await user.click(screen.getByRole("button", { name: "Copy selected text" }));
+    expect(mocks.copyNativeText).toHaveBeenLastCalledWith("A sentence to improve");
+    await user.click(screen.getByRole("button", { name: "Copy Improve writing response" }));
+    expect(mocks.copyNativeText).toHaveBeenLastCalledWith("Improved sentence.");
     await user.click(screen.getByRole("button", { name: /Continue/ }));
     const input = screen.getByRole("textbox", { name: "Additional instructions" });
     await user.type(input, "Make it friendlier");
@@ -151,6 +159,8 @@ describe("Context Bar lifecycle", () => {
     await waitFor(() => expect(mocks.continueNativeRun).toHaveBeenCalledWith("run-1", "Make it friendlier"));
     expect(mocks.startNativeRun).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Make it friendlier").closest("article")).toHaveClass("context-chat-message", "user");
+    await user.click(screen.getByRole("button", { name: "Copy your message" }));
+    expect(mocks.copyNativeText).toHaveBeenLastCalledWith("Make it friendlier");
 
     emit("codex-event", {
       runId: "run-1",
@@ -318,5 +328,31 @@ describe("Context Bar lifecycle", () => {
     await user.click(replace);
     await waitFor(() => expect(mocks.replaceNativeSelection).toHaveBeenCalledWith("Replacement text."));
     expect(mocks.hideContextBar).toHaveBeenCalled();
+  });
+
+  it("keeps the result open when the source editor rejects replacement", async () => {
+    const user = userEvent.setup();
+    mocks.replaceNativeSelection.mockRejectedValueOnce(new Error("The source editor ignored the replacement"));
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+
+    emit("native-selection", selection("Editable custom control", 20, "clipboardPaste"));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
+    emit("codex-event", {
+      runId: "run-1",
+      message: {
+        method: "turn/completed",
+        params: { turn: { status: "completed", items: [{ type: "agentMessage", text: "Replacement text." }] } },
+      },
+    });
+
+    await screen.findByText("Replacement text.");
+    const replace = screen.getByRole("button", { name: /Replace/ });
+    await waitFor(() => expect(replace).toBeEnabled());
+    await user.click(replace);
+    expect(await screen.findByText("The source editor ignored the replacement")).toBeInTheDocument();
+    expect(mocks.hideContextBar).not.toHaveBeenCalled();
+    expect(mocks.setOverlayPinned).toHaveBeenLastCalledWith(true);
   });
 });
