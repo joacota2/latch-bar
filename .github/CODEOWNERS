@@ -1,0 +1,4 @@
+/.github/workflows/ @joacota2
+/release-please-config.json @joacota2
+/.release-please-manifest.json @joacota2
+/scripts/check-macos-release-signing.sh @joacota2

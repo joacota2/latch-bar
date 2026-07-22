@@ -34,6 +34,8 @@ const GESTURE_FRESHNESS: Duration = Duration::from_millis(1_500);
 const FALLBACK_CACHE_LIFETIME: Duration = Duration::from_secs(300);
 const COPY_TIMEOUT: Duration = Duration::from_millis(450);
 const CLIPBOARD_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const REPLACEMENT_VERIFY_TIMEOUT: Duration = Duration::from_millis(500);
+const REPLACEMENT_VERIFY_INTERVAL: Duration = Duration::from_millis(20);
 const MAX_CLIPBOARD_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 const MINIMUM_DRAG_DISTANCE_SQUARED: f64 = 16.0;
 
@@ -101,7 +103,8 @@ extern "C" {
 }
 
 struct SelectionTarget {
-    element: Option<AXUIElementRef>,
+    selection_element: Option<AXUIElementRef>,
+    paste_element: Option<AXUIElementRef>,
     process_id: i32,
     selected_text: String,
     replacement_capability: ReplacementCapability,
@@ -111,7 +114,10 @@ unsafe impl Send for SelectionTarget {}
 
 impl Drop for SelectionTarget {
     fn drop(&mut self) {
-        if let Some(element) = self.element {
+        if let Some(element) = self.selection_element {
+            unsafe { CFRelease(element as CFTypeRef) }
+        }
+        if let Some(element) = self.paste_element {
             unsafe { CFRelease(element as CFTypeRef) }
         }
     }
@@ -265,69 +271,72 @@ unsafe fn attribute_is_settable(element: AXUIElementRef, name: &str) -> bool {
         && settable
 }
 
-unsafe fn element_is_confidently_editable(element: AXUIElementRef) -> bool {
-    let mut current = element;
-    let mut owns_current = false;
+unsafe fn confidently_editable_target(element: AXUIElementRef) -> Option<OwnedAxElement> {
+    let mut current = OwnedAxElement(CFRetain(element as CFTypeRef) as AXUIElementRef);
 
     for _ in 0..32 {
-        let subrole = copied_string(current, "AXSubrole").unwrap_or_default();
+        let subrole = copied_string(current.0, "AXSubrole").unwrap_or_default();
         if subrole == "AXSecureTextField"
-            || copied_boolean(current, "AXEnabled").is_some_and(|enabled| !enabled)
+            || copied_boolean(current.0, "AXEnabled").is_some_and(|enabled| !enabled)
         {
-            if owns_current {
-                CFRelease(current as CFTypeRef);
-            }
-            return false;
+            return None;
         }
 
-        if copied_boolean(current, "AXIsEditable") == Some(true) {
-            if owns_current {
-                CFRelease(current as CFTypeRef);
-            }
-            return true;
+        if copied_boolean(current.0, "AXIsEditable") == Some(true) {
+            return Some(current);
         }
 
         // Browser accessibility trees expose this relationship for contenteditable
         // descendants without marking the surrounding AXWebArea itself as editable.
-        if let Some(editable_ancestor) = copied_value(current, "AXEditableAncestor") {
-            let editable_ancestor = editable_ancestor as AXUIElementRef;
-            let secure = copied_string(editable_ancestor, "AXSubrole").as_deref()
+        if let Some(editable_ancestor) = copied_value(current.0, "AXEditableAncestor") {
+            let editable_ancestor = OwnedAxElement(editable_ancestor as AXUIElementRef);
+            let secure = copied_string(editable_ancestor.0, "AXSubrole").as_deref()
                 == Some("AXSecureTextField");
-            let enabled = copied_boolean(editable_ancestor, "AXEnabled") != Some(false);
-            CFRelease(editable_ancestor as CFTypeRef);
+            let enabled = copied_boolean(editable_ancestor.0, "AXEnabled") != Some(false);
             if !secure && enabled {
-                if owns_current {
-                    CFRelease(current as CFTypeRef);
-                }
-                return true;
+                return Some(editable_ancestor);
             }
         }
 
-        let role = copied_string(current, "AXRole").unwrap_or_default();
+        let role = copied_string(current.0, "AXRole").unwrap_or_default();
         if matches!(role.as_str(), "AXTextField" | "AXTextArea" | "AXComboBox")
-            && attribute_is_settable(current, "AXValue")
+            && attribute_is_settable(current.0, "AXValue")
         {
-            if owns_current {
-                CFRelease(current as CFTypeRef);
-            }
-            return true;
+            return Some(current);
         }
 
-        let parent = copied_value(current, "AXParent").map(|value| value as AXUIElementRef);
-        if owns_current {
-            CFRelease(current as CFTypeRef);
-        }
+        let parent = copied_value(current.0, "AXParent").map(|value| value as AXUIElementRef);
         let Some(parent) = parent else {
-            return false;
+            return None;
         };
-        current = parent;
-        owns_current = true;
+        current = OwnedAxElement(parent);
+    }
+    None
+}
+
+unsafe fn element_is_confidently_editable(element: AXUIElementRef) -> bool {
+    confidently_editable_target(element).is_some()
+}
+
+unsafe fn focus_editable_target(element: AXUIElementRef, process_id: i32) {
+    let application = AXUIElementCreateApplication(process_id);
+    if !application.is_null() {
+        let focused_element = attribute("AXFocusedUIElement");
+        let _ = AXUIElementSetAttributeValue(
+            application,
+            focused_element.as_concrete_TypeRef(),
+            element as CFTypeRef,
+        );
+        CFRelease(application as CFTypeRef);
     }
 
-    if owns_current {
-        CFRelease(current as CFTypeRef);
-    }
-    false
+    let focused = attribute("AXFocused");
+    let enabled = CFBoolean::true_value();
+    let _ = AXUIElementSetAttributeValue(
+        element,
+        focused.as_concrete_TypeRef(),
+        enabled.as_CFTypeRef(),
+    );
 }
 
 fn replacement_capability_from_support(
@@ -1066,7 +1075,22 @@ impl MacOsAdapter {
         Ok(cached.as_ref().map(|value| value.selection.clone()))
     }
 
-    fn paste_to_target(&self, text: &str, process_id: i32) -> Result<ReplacementResult, String> {
+    fn paste_to_target(
+        &self,
+        text: &str,
+        process_id: i32,
+        target: AXUIElementRef,
+        original_text: &str,
+    ) -> Result<ReplacementResult, String> {
+        // Chromium and Electron often expose the selection on a descendant while the
+        // keyboard destination is its editable ancestor. Focus that retained ancestor
+        // explicitly before sending the paste shortcut to the source process.
+        unsafe { focus_editable_target(target, process_id) };
+        let focused_text = capture_via_clipboard(process_id)?
+            .ok_or("The original editable selection lost focus")?;
+        if focused_text != original_text {
+            return Err("The original editable selection lost focus".into());
+        }
         self.copy_text(text)?;
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
             .map_err(|_| "Could not create a keyboard event source")?;
@@ -1079,6 +1103,18 @@ impl MacOsAdapter {
         down.post_to_pid(process_id);
         std::thread::sleep(Duration::from_millis(20));
         up.post_to_pid(process_id);
+
+        if text != original_text {
+            // Posting a CGEvent only confirms delivery to the process, not that a web
+            // editor accepted it. Copy the current selection back: an unchanged original
+            // selection proves that the paste was ignored. A collapsed selection (None)
+            // or newly selected replacement both indicate that the target reacted.
+            std::thread::sleep(Duration::from_millis(80));
+            let observed = capture_via_clipboard(process_id)?;
+            if observed.as_deref() == Some(original_text) {
+                return Err("The source editor ignored the replacement".into());
+            }
+        }
         Ok(ReplacementResult {
             method: "clipboard-paste",
         })
@@ -1187,8 +1223,7 @@ impl PlatformAdapter for MacOsAdapter {
                         fallback_target_index(interaction.origin, focused_index, hit_tested_index)
                     })
                     .and_then(|index| targets.get(index).copied())
-                    .filter(|target| element_is_confidently_editable(*target))
-                    .map(|target| OwnedAxElement(CFRetain(target as CFTypeRef) as AXUIElementRef))
+                    .and_then(|target| confidently_editable_target(target))
             } else {
                 None
             };
@@ -1244,7 +1279,8 @@ impl PlatformAdapter for MacOsAdapter {
                     .target
                     .lock()
                     .map_err(|_| "Selection target is unavailable")? = Some(SelectionTarget {
-                    element: fallback_target.map(OwnedAxElement::into_raw),
+                    selection_element: None,
+                    paste_element: fallback_target.map(OwnedAxElement::into_raw),
                     process_id,
                     selected_text: text,
                     replacement_capability,
@@ -1308,8 +1344,13 @@ impl PlatformAdapter for MacOsAdapter {
                 }
             };
             let replacement_capability = replacement_capability(focused.0);
+            let paste_element = (replacement_capability == ReplacementCapability::ClipboardPaste)
+                .then(|| confidently_editable_target(focused.0))
+                .flatten()
+                .map(OwnedAxElement::into_raw);
             let selection_target = SelectionTarget {
-                element: Some(focused.into_raw()),
+                selection_element: Some(focused.into_raw()),
+                paste_element,
                 process_id,
                 selected_text: text.clone(),
                 replacement_capability,
@@ -1350,7 +1391,7 @@ impl PlatformAdapter for MacOsAdapter {
             ReplacementCapability::None => Err("The original selection is not editable".into()),
             ReplacementCapability::Accessibility => {
                 let element = target
-                    .element
+                    .selection_element
                     .ok_or("The editable selection target is no longer available")?;
                 let mut element_process_id = 0;
                 let target_is_current = unsafe {
@@ -1364,16 +1405,32 @@ impl PlatformAdapter for MacOsAdapter {
                 }
 
                 let replacement = CFString::new(text);
-                let selected_text = attribute("AXSelectedText");
+                let selected_text_attribute = attribute("AXSelectedText");
                 let replaced = unsafe {
                     AXUIElementSetAttributeValue(
                         element,
-                        selected_text.as_concrete_TypeRef(),
+                        selected_text_attribute.as_concrete_TypeRef(),
                         replacement.as_CFTypeRef(),
                     ) == 0
                 };
                 if !replaced {
                     return Err("The source application rejected the replacement".into());
+                }
+                if text != target.selected_text {
+                    let started = Instant::now();
+                    while started.elapsed() < REPLACEMENT_VERIFY_TIMEOUT {
+                        if unsafe { selected_text(element) }.as_deref()
+                            != Some(target.selected_text.as_str())
+                        {
+                            break;
+                        }
+                        std::thread::sleep(REPLACEMENT_VERIFY_INTERVAL);
+                    }
+                    if unsafe { selected_text(element) }.as_deref()
+                        == Some(target.selected_text.as_str())
+                    {
+                        return Err("The source editor did not apply the replacement".into());
+                    }
                 }
                 Ok(ReplacementResult {
                     method: "accessibility",
@@ -1381,7 +1438,7 @@ impl PlatformAdapter for MacOsAdapter {
             }
             ReplacementCapability::ClipboardPaste => {
                 let element = target
-                    .element
+                    .paste_element
                     .ok_or("The editable selection target is no longer available")?;
                 let mut element_process_id = 0;
                 let target_is_editable = unsafe {
@@ -1393,12 +1450,7 @@ impl PlatformAdapter for MacOsAdapter {
                     return Err("The original editable control is no longer available".into());
                 }
 
-                let current_text = capture_via_clipboard(target.process_id)?
-                    .ok_or("The original editable selection has changed")?;
-                if current_text != target.selected_text {
-                    return Err("The original editable selection has changed".into());
-                }
-                self.paste_to_target(text, target.process_id)
+                self.paste_to_target(text, target.process_id, element, &target.selected_text)
             }
         }
     }

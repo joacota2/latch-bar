@@ -2,6 +2,8 @@
 
 Latch Bar is a contextual desktop surface for the Codex installation already on a user's computer. Select content, choose a permission-scoped Codex profile, and inspect or apply the streamed result without manually moving context between applications.
 
+[Download the latest notarized macOS release](https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg)
+
 ## What is implemented
 
 - A polished Codex Studio with Agents, Runs, MCPs, Skills, Workspaces, and Settings.
@@ -46,6 +48,12 @@ APPLE_SIGNING_IDENTITY="Developer ID Application: Example (TEAMID)" npm run taur
 ```
 
 The release bundle hook rejects unsigned macOS bundles. Use `npm run tauri build -- --no-bundle` for a compile-only check. `tauri dev` remains ad-hoc; after its native executable changes, macOS may require removing the old Accessibility entry and granting the rebuilt development binary again.
+
+## Releases
+
+Pull requests should use Conventional Commit titles such as `fix: ...`, `feat: ...`, or `feat!: ...` and should be squash-merged. Release Please keeps an automated release pull request up to date with the next SemVer version and changelog. Merging that release pull request creates a draft release and tag; GitHub Actions then builds one universal Intel and Apple Silicon DMG, signs it with Developer ID, notarizes and staples it, uploads its checksum, and publishes the release.
+
+If a release build fails after the draft and tag were created, rerun the failed job. The release workflow can also be started manually with that existing draft tag. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution convention and [docs/RELEASING.md](docs/RELEASING.md) for the one-time Apple and GitHub setup.
 
 ## Architecture
 
