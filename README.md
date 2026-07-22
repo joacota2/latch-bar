@@ -6,6 +6,8 @@ Latch Bar is a contextual desktop surface for the Codex installation already on 
   <a href="https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg">
     <img alt="Download Latch Bar for macOS 12 or later" src="https://img.shields.io/badge/Download_for_macOS_12%2B-Universal_DMG-000000?style=for-the-badge&amp;logo=apple&amp;logoColor=white">
   </a>
+</p>
+<p>
   <img alt="Windows support is planned" src="https://img.shields.io/badge/Windows-Planned-0078D4?style=for-the-badge&amp;logo=windows11&amp;logoColor=white">
 </p>
 
