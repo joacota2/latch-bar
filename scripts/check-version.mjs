@@ -19,14 +19,33 @@ function rootPackageVersionFromToml(contents) {
   return packageSection?.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1];
 }
 
-const [packageJson, packageLock, tauriConfig, cargoToml, cargoLock] =
-  await Promise.all([
+const [
+  packageJson,
+  packageLock,
+  tauriConfig,
+  releasePleaseConfig,
+  cargoToml,
+  cargoLock,
+] = await Promise.all([
     readJson("package.json"),
     readJson("package-lock.json"),
     readJson("src-tauri/tauri.conf.json"),
+    readJson("release-please-config.json"),
     readFile(new URL("src-tauri/Cargo.toml", root), "utf8"),
     readFile(new URL("src-tauri/Cargo.lock", root), "utf8"),
   ]);
+
+// GenericToml tags scalar values so it can replace them in place without
+// reformatting the file. Filters must therefore inspect the tag's value field.
+const cargoLockExtraFile = releasePleaseConfig.packages?.["."]?.["extra-files"]?.find(
+  ({ path }) => path === "src-tauri/Cargo.lock",
+);
+const cargoLockJsonPath = "$.package[?(@.name.value == 'latch-bar')].version";
+if (cargoLockExtraFile?.jsonpath !== cargoLockJsonPath) {
+  throw new Error(
+    `Release Please must update latch-bar in Cargo.lock with ${cargoLockJsonPath}`,
+  );
+}
 
 const versions = new Map([
   ["package.json", packageJson.version],
