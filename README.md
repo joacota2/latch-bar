@@ -2,7 +2,14 @@
 
 Latch Bar is a contextual desktop surface for the Codex installation already on a user's computer. Select content, choose a permission-scoped Codex profile, and inspect or apply the streamed result without manually moving context between applications.
 
-[Download the latest notarized macOS release](https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg)
+<p>
+  <a href="https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg">
+    <img alt="Download Latch Bar for macOS 12 or later" src="https://img.shields.io/badge/Download_for_macOS_12%2B-Universal_DMG-000000?style=for-the-badge&amp;logo=apple&amp;logoColor=white">
+  </a>
+  <img alt="Windows support is planned" src="https://img.shields.io/badge/Windows-Planned-0078D4?style=for-the-badge&amp;logo=windows11&amp;logoColor=white">
+</p>
+
+The notarized macOS download is universal for Apple silicon and Intel. Windows support is planned for a future release.
 
 ## What is implemented
 
