@@ -1,19 +1,48 @@
 # Latch Bar
 
-Latch Bar is a contextual desktop surface for the Codex installation already on a user's computer. Select content, choose a permission-scoped Codex profile, and inspect or apply the streamed result without manually moving context between applications.
+<p align="center">
+  <img src="docs/media/latch-bar-hero.png" alt="Latch Bar — Your Codex, everywhere" width="100%">
+</p>
 
-<p>
+<p align="center">
+  <strong>Bring the right Codex agent to any text selection on your Mac.</strong><br>
+  Select context, choose a permission-scoped agent, and inspect or apply the streamed result without breaking your flow.
+</p>
+
+<p align="center">
   <a href="https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg">
     <img alt="Download Latch Bar for macOS 12 or later" src="https://img.shields.io/badge/Download_for_macOS_12%2B-Universal_DMG-000000?style=for-the-badge&amp;logo=apple&amp;logoColor=white">
   </a>
-</p>
-<p>
   <img alt="Windows support is planned" src="https://img.shields.io/badge/Windows-Planned-0078D4?style=for-the-badge&amp;logo=windows11&amp;logoColor=white">
 </p>
 
-The notarized macOS download is universal for Apple silicon and Intel. Windows support is planned for a future release.
+<p align="center"><sub>The notarized macOS download is universal for Apple silicon and Intel. Windows support is planned.</sub></p>
 
-## What is implemented
+## From selection to result
+
+<p align="center">
+  <img src="docs/media/latch-bar-studio.jpg" alt="Latch Bar Studio showing agents, permissions, and the floating Context Bar" width="100%">
+</p>
+
+<p align="center"><sub>Configure reusable agents in Studio, then summon them from the non-activating Context Bar in any supported app.</sub></p>
+
+<table>
+  <tr>
+    <td width="33%"><strong>1. Select anywhere</strong><br><sub>Highlight editable or read-only text in native apps, browsers, documents, and full-screen Spaces.</sub></td>
+    <td width="33%"><strong>2. Choose the right agent</strong><br><sub>Route the selection to a pinned Codex agent with its own model, workspace, tools, and permission scope.</sub></td>
+    <td width="33%"><strong>3. Review or replace</strong><br><sub>Inspect the streamed response beside the source and apply it only when the target and agent both allow replacement.</sub></td>
+  </tr>
+</table>
+
+### Keep the conversation in context
+
+<p align="center">
+  <img src="docs/media/latch-bar-conversation.jpg" alt="Expanded Latch Context Bar showing an Improve writing conversation and follow-up" width="100%">
+</p>
+
+<p align="center"><sub>The production Context Bar keeps the selected text, response, actions, and follow-up composer inside the source app.</sub></p>
+
+## Product overview
 
 - A polished Codex Studio with Agents, Runs, MCPs, Skills, Workspaces, and Settings.
 - Full agent CRUD and configuration for prompt, runtime, sandbox, approvals, workspace, context, tools, Skills, and output.
