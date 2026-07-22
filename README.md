@@ -34,6 +34,14 @@
   </tr>
 </table>
 
+### Keep the conversation in context
+
+<p align="center">
+  <img src="docs/media/latch-bar-conversation.png" alt="Expanded Latch Context Bar showing an Improve writing conversation and follow-up" width="100%">
+</p>
+
+<p align="center"><sub>Review the selected text, refine the answer with follow-up instructions, then copy or replace without leaving the source app.</sub></p>
+
 ## Product overview
 
 - A polished Codex Studio with Agents, Runs, MCPs, Skills, Workspaces, and Settings.
