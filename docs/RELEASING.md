@@ -1,6 +1,6 @@
 # Automated releases
 
-Latch Bar uses Release Please for SemVer, changelog, tags, and draft GitHub Releases. The official Tauri action builds a universal macOS DMG, signs it with Developer ID, notarizes and staples it, verifies it, uploads `Latch-Bar.dmg` and its SHA-256 checksum, and then publishes the draft.
+Latch Bar uses Release Please for SemVer, changelog, tags, and draft GitHub Releases. The official Tauri action builds a universal macOS DMG and notarizes the application inside it. The release workflow then submits the final DMG to Apple, staples and verifies its ticket, replaces the draft asset with that final DMG, uploads its SHA-256 checksum, and publishes the release.
 
 ## One-time Apple setup
 
@@ -48,7 +48,7 @@ Release Please uses this token so its generated release pull request triggers th
 
 ### macOS release environment
 
-Create an environment named `macos-release` under **Settings → Environments**. Restrict it to `main`. When the plan supports protected environments, add a required reviewer and disable administrator bypass.
+Create an environment named `macos-release` under **Settings → Environments** and restrict it to `main`. When the plan supports protected environments, add `joacota2` as the required reviewer, leave **Prevent self-review** disabled, and retain administrator bypass as a solo-maintainer recovery path.
 
 Add these environment secrets:
 
@@ -63,7 +63,7 @@ Add these environment secrets:
 
 If the current private-repository plan does not support environment secrets, create the `macos-release` environment without protection and store the Apple values as repository Actions secrets with the same names. The workflow does not change. Move them to protected environment secrets and add a required reviewer when the repository becomes public.
 
-Under **Settings → Actions → General**, allow GitHub Actions to use read and write workflow permissions. The workflows still declare narrower permissions per job.
+Under **Settings → Actions → General**, keep the default `GITHUB_TOKEN` permissions read-only. Each workflow job explicitly requests only the additional permissions it needs.
 
 Protect `main` with pull requests and require the `CI / Verify` check. Prefer squash merges. If this is a solo repository, requiring a separate approving reviewer can prevent the Release Please pull request from being merged; enable required reviews when another maintainer is available.
 

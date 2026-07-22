@@ -124,7 +124,7 @@ jobs:
           chmod 600 "$APPLE_API_KEY_PATH"
           echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH" >> "$GITHUB_ENV"
 
-      - name: Build, sign, notarize, and upload DMG
+      - name: Build, sign, notarize app, and upload DMG
         id: tauri
         uses: tauri-apps/tauri-action@944946e3e4cac6603d1fe8f514171e9ecd3c78aa # v1
         env:
@@ -140,13 +140,27 @@ jobs:
           uploadUpdaterJson: false
           args: --target universal-apple-darwin --bundles dmg
 
-      - name: Verify notarized DMG
+      - name: Notarize and verify final DMG
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           DMG_PATH="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -type f -name '*.dmg' -print -quit)"
           test -n "$DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
           xcrun stapler validate "$DMG_PATH"
           spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
-          echo "DMG_PATH=$DMG_PATH" >> "$GITHUB_ENV"
+          FINAL_DMG_PATH="$RUNNER_TEMP/Latch-Bar.dmg"
+          cp "$DMG_PATH" "$FINAL_DMG_PATH"
+          gh release upload "$RELEASE_TAG" "$FINAL_DMG_PATH" --clobber
+          echo "DMG_PATH=$FINAL_DMG_PATH" >> "$GITHUB_ENV"
 
       - name: Upload checksum
         env:
