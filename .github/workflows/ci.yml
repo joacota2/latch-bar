@@ -46,3 +46,6 @@ jobs:
 
       - name: Check native application
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Test native selection and runtime contracts
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked

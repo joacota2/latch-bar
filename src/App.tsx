@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { AgentEditor } from "./components/AgentEditor";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
@@ -21,7 +22,7 @@ const pages = {
 };
 
 export function App() {
-  const { activeNav, selectedAgentId, toasts, settings, notify } = useLatch();
+  const { activeNav, setActiveNav, selectedAgentId, toasts, settings, notify } = useLatch();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("latch-sidebar-collapsed") === "true");
   const permissionChecked = useRef(false);
 
@@ -37,6 +38,12 @@ export function App() {
       notify("Accessibility is not active for the running copy. Open Settings → Selection to enable or repair it.");
     }).catch(() => notify("Could not check Accessibility permission"));
   }, [notify, settings.contextBarEnabled]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const subscription = listen("show-runs", () => setActiveNav("runs"));
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, [setActiveNav]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((collapsed) => {

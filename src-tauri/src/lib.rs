@@ -60,6 +60,11 @@ pub fn run() {
             runtime::interrupt_codex_run,
             runtime::stop_codex_run
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Latch Bar");
+        .build(tauri::generate_context!())
+        .expect("error while building Latch Bar")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<runtime::RuntimeManager>().shutdown();
+            }
+        });
 }

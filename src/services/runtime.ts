@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, McpServer, Workspace } from "../domain";
 import { buildPrompt, buildTitleSource, type SelectionInput } from "./promptBuilder";
 
@@ -21,6 +22,12 @@ export interface PlatformStatus {
 }
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
+
+export async function chooseWorkspaceFolder(): Promise<string | null> {
+  if (!isTauri()) throw new Error("Choosing a folder requires the Latch Bar desktop app");
+  const path = await open({ directory: true, multiple: false, title: "Choose a workspace" });
+  return typeof path === "string" ? path : null;
+}
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
   if (isTauri()) return invoke<RuntimeStatus>("codex_status");
@@ -63,7 +70,7 @@ export async function startNativeRun(agent: CodexAgent, input: SelectionInput, s
   const titleSource = buildTitleSource(agent, input);
   if (!isTauri()) throw new Error("Native Codex runs require the Latch Bar desktop app");
   const resolvedSkills = skills
-    .filter((skill) => agent.enabledSkills.includes(skill.id) && skill.path)
+    .filter((skill) => agent.enabledSkills.includes(skill.id) && skill.path && skill.enabled && skill.compatible)
     .map((skill) => ({ id: skill.id, name: skill.name, path: skill.path! }));
   const resolvedMcpServers = mcps.filter((server) => server.configurable).map((server) => server.id);
   return invoke<{ runId: string; prompt: string }>("start_codex_run", {
@@ -113,9 +120,9 @@ export const setOverlayPinned = (pinned: boolean) => invoke<void>("set_overlay_p
 export const hideContextBar = () => invoke<void>("hide_context_bar");
 export const resizeContextBar = (height: number, width?: number, anchorX?: number) => invoke<void>("resize_context_bar", { height, width, anchorX });
 export const setContextBarFocusable = (focusable: boolean) => invoke<void>("set_context_bar_focusable", { focusable });
-export const replaceNativeSelection = (text: string) => invoke<{ method: string }>("replace_selection", { text });
+export const replaceNativeSelection = (text: string, selectionId: string) => invoke<{ method: string; verified: boolean }>("replace_selection", { text, selectionId });
 export const copyNativeText = (text: string) => invoke<void>("copy_text", { text });
-export const openStudio = () => invoke<void>("open_studio");
+export const openStudio = (showRuns = false) => invoke<void>("open_studio", { showRuns });
 export const openCodexThread = (threadId: string) => openUrl(`codex://threads/${encodeURIComponent(threadId)}`);
 export const interruptNativeRun = (runId: string) => invoke<void>("interrupt_codex_run", { runId });
 export const stopNativeRun = (runId: string) => invoke<void>("stop_codex_run", { runId });

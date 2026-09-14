@@ -9,6 +9,7 @@ import { ContextBarWindow } from "./ContextBarWindow";
 type EventHandler = (event: { payload: unknown }) => void;
 
 const mocks = vi.hoisted(() => ({
+  chooseWorkspaceFolder: vi.fn(),
   listeners: new Map<string, EventHandler>(),
   copyNativeText: vi.fn(),
   continueNativeRun: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("../services/runtime", () => ({
+  chooseWorkspaceFolder: mocks.chooseWorkspaceFolder,
   continueNativeRun: mocks.continueNativeRun,
   copyNativeText: mocks.copyNativeText,
   focusSelectionApplication: mocks.focusSelectionApplication,
@@ -53,6 +55,7 @@ vi.mock("../services/runtime", () => ({
 }));
 
 const selection = (text: string, x: number, replacementCapability: NativeSelection["replacementCapability"] = "accessibility"): NativeSelection => ({
+  selectionId: `selection-${x}`,
   text,
   application: "TextEdit",
   windowTitle: "Draft",
@@ -64,6 +67,7 @@ const selection = (text: string, x: number, replacementCapability: NativeSelecti
 function emit(event: string, payload: unknown) {
   const handler = mocks.listeners.get(event);
   if (!handler) throw new Error(`Missing ${event} listener`);
+  if (event === "latch-state-changed") localStorage.setItem("latch-bar-state-v1", JSON.stringify(payload));
   act(() => handler({ payload }));
 }
 
@@ -76,6 +80,7 @@ describe("Context Bar lifecycle", () => {
       .mockReset()
       .mockResolvedValueOnce({ runId: "run-1", prompt: "first" })
       .mockResolvedValueOnce({ runId: "run-2", prompt: "second" });
+    mocks.chooseWorkspaceFolder.mockReset().mockResolvedValue(null);
     mocks.copyNativeText.mockResolvedValue(undefined);
     mocks.continueNativeRun.mockResolvedValue(undefined);
     mocks.stopNativeRun.mockResolvedValue(undefined);
@@ -85,7 +90,7 @@ describe("Context Bar lifecycle", () => {
     mocks.setContextBarFocusable.mockResolvedValue(undefined);
     mocks.focusSelectionApplication.mockResolvedValue(undefined);
     mocks.openStudio.mockResolvedValue(undefined);
-    mocks.replaceNativeSelection.mockReset().mockResolvedValue({ method: "accessibility" });
+    mocks.replaceNativeSelection.mockReset().mockResolvedValue({ method: "accessibility", verified: true });
   });
 
   afterEach(cleanup);
@@ -96,11 +101,11 @@ describe("Context Bar lifecycle", () => {
     await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
 
     emit("native-selection", selection("First selection", 20));
-    await user.click(screen.getByRole("button", { name: "Run Staff engineer" }));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
 
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
     expect(mocks.startNativeRun.mock.calls[0][0]).toMatchObject({
-      id: "staff-engineer",
+      id: "improve-writing",
       workspaceMode: "none",
     });
 
@@ -326,7 +331,7 @@ describe("Context Bar lifecycle", () => {
     const replace = screen.getByRole("button", { name: /Replace/ });
     await waitFor(() => expect(replace).toBeEnabled());
     await user.click(replace);
-    await waitFor(() => expect(mocks.replaceNativeSelection).toHaveBeenCalledWith("Replacement text."));
+    await waitFor(() => expect(mocks.replaceNativeSelection).toHaveBeenCalledWith("Replacement text.", "selection-20"));
     expect(mocks.hideContextBar).toHaveBeenCalled();
   });
 
@@ -355,4 +360,87 @@ describe("Context Bar lifecycle", () => {
     expect(mocks.hideContextBar).not.toHaveBeenCalled();
     expect(mocks.setOverlayPinned).toHaveBeenLastCalledWith(true);
   });
+  it("keeps an unverified replacement visible and prevents a second dispatch", async () => {
+    mocks.replaceNativeSelection.mockResolvedValueOnce({ method: "clipboard-paste", verified: false });
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    emit("native-selection", selection("Original", 20, "clipboardPaste"));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
+    emit("codex-event", { runId: "run-1", message: { method: "turn/completed", params: { turn: { status: "completed", items: [{ type: "agentMessage", text: "Answer" }] } } } });
+    await user.click(screen.getByRole("button", { name: /Replace/ }));
+    expect(await screen.findByRole("status")).toHaveTextContent("could not confirm");
+    expect(screen.getByRole("button", { name: /Replace/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Copy response" })).toBeEnabled();
+    expect(mocks.hideContextBar).not.toHaveBeenCalled();
+  });
+
+  it("buffers early events for the returned run and ignores unrelated runs", async () => {
+    let resolve!: (value: { runId: string; prompt: string }) => void;
+    mocks.startNativeRun.mockReset().mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    emit("native-selection", selection("Original", 20));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
+    emit("codex-event", { runId: "foreign", message: { error: { message: "Unrelated failure" } } });
+    emit("codex-event", { runId: "run-1", message: { method: "turn/completed", params: { turn: { status: "completed", items: [{ type: "agentMessage", text: "Early answer" }] } } } });
+    await act(async () => resolve({ runId: "run-1", prompt: "" }));
+    expect(await screen.findByText("Early answer")).toBeInTheDocument();
+    expect(screen.queryByText("Unrelated failure")).not.toBeInTheDocument();
+  });
+
+  it("stops a run that finishes starting after the bar was cancelled", async () => {
+    let resolve!: (value: { runId: string; prompt: string }) => void;
+    mocks.startNativeRun.mockReset().mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    emit("native-selection", selection("Original", 20));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: /Cancel/ }));
+    await act(async () => resolve({ runId: "late-run", prompt: "" }));
+    expect(mocks.stopNativeRun).toHaveBeenCalledWith("late-run");
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+  });
+
+  it("does not launch a projectless run after cancelling Ask each time", async () => {
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    emit("native-selection", selection("Original", 20));
+    await user.click(screen.getByRole("button", { name: "Run Staff engineer" }));
+    await waitFor(() => expect(mocks.chooseWorkspaceFolder).toHaveBeenCalled());
+    expect(mocks.startNativeRun).not.toHaveBeenCalled();
+  });
+
+  it.each(["copy", "replace", "open-studio"] as const)("honors the configured %s output action", async (mode) => {
+    localStorage.setItem("latch-bar-state-v1", JSON.stringify({ agents: [{ ...seedAgents[0], outputPolicy: { ...seedAgents[0].outputPolicy, mode, allowReplace: true } }], runs: [], settings: seedSettings }));
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    emit("native-selection", selection("Original", 20));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
+    emit("codex-event", { runId: "run-1", message: { method: "turn/completed", params: { turn: { status: "completed", items: [{ type: "agentMessage", text: "Answer" }] } } } });
+    if (mode === "copy") await waitFor(() => expect(mocks.copyNativeText).toHaveBeenCalledWith("Answer"));
+    if (mode === "replace") await waitFor(() => expect(mocks.replaceNativeSelection).toHaveBeenCalledWith("Answer", "selection-20"));
+    if (mode === "open-studio") await waitFor(() => expect(mocks.openStudio).toHaveBeenCalledWith(true));
+  });
+
+  it("never offers placeholder text as a replacement for an empty completion", async () => {
+    const user = userEvent.setup();
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    emit("native-selection", selection("Original", 20));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
+    emit("codex-event", { runId: "run-1", message: { method: "turn/completed", params: { turn: { status: "completed", items: [] } } } });
+    expect(await screen.findByRole("status")).toHaveTextContent("without a text response");
+    expect(screen.getByRole("button", { name: /Replace/ })).toBeDisabled();
+  });
+
 });

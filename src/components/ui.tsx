@@ -5,8 +5,8 @@ export function AgentGlyph({ agent, size = "md" }: { agent: Pick<CodexAgent, "ic
   return <span className={`agent-glyph ${agent.accent} ${size}`}>{agent.icon}</span>;
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label: string }) {
-  return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={checked ? "toggle checked" : "toggle"} onClick={() => onChange(!checked)}><span /></button>;
+export function Toggle({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: (checked: boolean) => void; label: string; disabled?: boolean }) {
+  return <button disabled={disabled} type="button" role="switch" aria-checked={checked} aria-label={label} className={checked ? "toggle checked" : "toggle"} onClick={() => onChange(!checked)}><span /></button>;
 }
 
 export function PageIntro({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description: string; action?: ReactNode }) {

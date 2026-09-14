@@ -3,6 +3,7 @@ import { ArrowUpRight, Check, Copy, Ellipsis, LoaderCircle, MessageCircle, Pin, 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { CodexAgent, CodexSkill, ConversationMessage, McpServer, NativeSelection, Run } from "../domain";
 import {
+  chooseWorkspaceFolder,
   continueNativeRun,
   copyNativeText,
   focusSelectionApplication,
@@ -57,6 +58,8 @@ export function ContextBarWindow() {
   const [state, setState] = useState<BarState>("idle");
   const [agentId, setAgentId] = useState<string | null>(null);
   const [result, setResult] = useState("");
+  const [replacementStatus, setReplacementStatus] = useState("");
+  const [replacing, setReplacing] = useState(false);
   const [error, setError] = useState("");
   const [approval, setApproval] = useState<Approval | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -67,6 +70,9 @@ export function ContextBarWindow() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
   const [launchingAgentId, setLaunchingAgentId] = useState<string | null>(null);
+  const outputActionRef = useRef<(agent: CodexAgent, source: NativeSelection, text: string) => Promise<void>>(async () => undefined);
+  const epoch = useRef(0);
+  const pendingEvents = useRef<RuntimeEvent[]>([]);
   const runId = useRef<string | null>(null);
   const turnActive = useRef(false);
   const starting = useRef(false);
@@ -91,7 +97,7 @@ export function ContextBarWindow() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { selectionRef.current = selection; }, [selection]);
   useEffect(() => {
-    if (!selection) return;
+    if (!selection) { void resizeContextBar(86, compactWidth).catch(() => undefined); return; }
     // Keep transparent room above the compact bar for the agent-name tooltip.
     // Native webview contents cannot paint outside their window bounds.
     let height = 86;
@@ -125,7 +131,7 @@ export function ContextBarWindow() {
     const activeAgent = agentRef.current;
     const source = selectionRef.current;
     const id = runId.current;
-    if (!activeAgent || !source || !id) return;
+    if (!activeAgent || !source || !id || !settings.storeHistory) return;
     const duration = startedAt.current ? `${((Date.now() - startedAt.current) / 1000).toFixed(1)}s` : undefined;
     upsertRun({
       id,
@@ -145,9 +151,10 @@ export function ContextBarWindow() {
       threadId: threadId.current,
       conversation: settings.storeSelectedText ? conversation : conversation.filter((message) => message.id !== "selected-text"),
     });
-  }, [settings.storeSelectedText, upsertRun]);
+  }, [settings.storeHistory, settings.storeSelectedText, upsertRun]);
 
   const finish = useCallback(async (message: RpcMessage) => {
+    const completedEpoch = epoch.current;
     const completedRunId = runId.current;
     const turn = asRecord(message.params?.turn);
     const status = asText(turn.status);
@@ -167,7 +174,8 @@ export function ContextBarWindow() {
       saveRun("cancelled", undefined, "Cancelled");
       shouldHide = true;
     } else {
-      const completedText = finalText || "Codex completed without a text response.";
+      const completedText = finalText;
+      if (!completedText) setError("Codex completed without a text response. The source text has not been changed.");
       resultRef.current = completedText;
       setResult(completedText);
       const conversation = appendMessage({ id: `assistant-${Date.now()}`, role: "assistant", text: completedText });
@@ -187,6 +195,9 @@ export function ContextBarWindow() {
     // exposing its selection. The user, rather than the selection monitor, owns
     // the result until they replace, close, cancel, or redirect it.
     await setOverlayPinned(!shouldHide);
+    if (!shouldHide && status !== "failed" && resultRef.current && agentRef.current && selectionRef.current && epoch.current === completedEpoch) {
+      await outputActionRef.current(agentRef.current, selectionRef.current, resultRef.current);
+    }
     if (shouldHide) {
       agentRef.current = null;
       selectionRef.current = null;
@@ -197,6 +208,13 @@ export function ContextBarWindow() {
   }, [appendMessage, saveRun, setContextBarState, setContextResult]);
 
   const handleMessage = useCallback((message: RpcMessage) => {
+    const handleFailure = (detail: string) => {
+      setError(detail); setState("error"); setContextBarState("error");
+      saveRun("failed", undefined, detail);
+      const id = runId.current;
+      runId.current = null; turnActive.current = false; starting.current = false;
+      if (id) void stopNativeRun(id).catch(() => undefined);
+    };
     if (message.error) {
       const detail = message.error.message || "Codex app-server returned an error";
       setError(detail);
@@ -215,6 +233,11 @@ export function ContextBarWindow() {
       const response = asRecord(message.result);
       threadId.current = asText(asRecord(response.thread).id) || threadId.current;
       resolvedModel.current = asText(response.model) || resolvedModel.current;
+    }
+    if (message.method === "runtime/exited") {
+      if (!turnActive.current && !starting.current) return;
+      handleFailure("Codex stopped before the run completed");
+      return;
     }
     if (message.method === "error") {
       const rpcError = asRecord(message.params?.error);
@@ -257,7 +280,11 @@ export function ContextBarWindow() {
     }
   }, [finish, saveRun, setContextBarState]);
 
+  const handleMessageRef = useRef(handleMessage);
+  handleMessageRef.current = handleMessage;
+
   useEffect(() => {
+    let disposed = false;
     const unlistenSelection = listen<NativeSelection>("native-selection", ({ payload }) => {
       if (turnActive.current || starting.current) return;
       const previousRunId = runId.current;
@@ -266,6 +293,9 @@ export function ContextBarWindow() {
       threadId.current = undefined;
       resolvedModel.current = "";
       composerCapturedFocus.current = false;
+      selectionRef.current = payload;
+      epoch.current += 1;
+      setReplacementStatus("");
       setSelection(payload);
       setAgentId(null);
       setState("idle");
@@ -280,8 +310,8 @@ export function ContextBarWindow() {
       setCopiedMessageId(null);
     });
     const unlistenRuntime = listen<RuntimeEvent>("codex-event", ({ payload }) => {
-      if (!runId.current && starting.current) runId.current = payload.runId;
-      if (payload.runId === runId.current) handleMessage(payload.message);
+      if (!runId.current && starting.current) { pendingEvents.current.push(payload); return; }
+      if (payload.runId === runId.current) handleMessageRef.current(payload.message);
     });
     const unlistenPointer = listen<NativePointer>("context-pointer-position", ({ payload }) => {
       document.querySelectorAll(".is-native-hovered").forEach((element) => element.classList.remove("is-native-hovered"));
@@ -292,16 +322,19 @@ export function ContextBarWindow() {
       button?.closest(".context-agent-option")?.classList.add("is-native-hovered");
     });
     void Promise.all([unlistenSelection, unlistenRuntime, unlistenPointer])
-      .then(() => markContextBarReady())
+      .then(async () => { if (!disposed) { await resizeContextBar(86, compactWidth); return markContextBarReady(); } })
       .catch(() => undefined);
     return () => {
+      disposed = true;
       void unlistenSelection.then((unlisten) => unlisten());
       void unlistenRuntime.then((unlisten) => unlisten());
       void unlistenPointer.then((unlisten) => unlisten());
     };
-  }, [handleMessage]);
+  }, []);
 
   const launchRun = async (runtimeAgent: CodexAgent, displayAgent: CodexAgent, source: NativeSelection, activity: string, runtimeSkills: CodexSkill[] = skills, runtimeMcps: McpServer[] = mcps) => {
+    const launchEpoch = epoch.current;
+    pendingEvents.current = [];
     setShowAll(false);
     setInstructionOpen(false);
     setAgentId(displayAgent.id);
@@ -324,17 +357,22 @@ export function ContextBarWindow() {
     agentRef.current = displayAgent;
     starting.current = true;
     turnActive.current = true;
-    await setOverlayPinned(true);
     try {
+      await setOverlayPinned(true);
       const response = await startNativeRun(runtimeAgent, {
         selection: source.text,
         application: source.application,
-        windowTitle: displayAgent.contextPolicy.includeWindowTitle ? source.windowTitle : undefined,
+        windowTitle: !settings.redactWindowTitles && displayAgent.contextPolicy.includeWindowTitle ? source.windowTitle : undefined,
         workspace: runtimeAgent.fixedWorkspacePath,
       }, runtimeSkills, runtimeMcps);
+      if (epoch.current !== launchEpoch) { await stopNativeRun(response.runId); return; }
       runId.current = response.runId;
       saveRun("running", undefined, activity);
+      const buffered = pendingEvents.current;
+      pendingEvents.current = [];
+      for (const event of buffered) if (event.runId === response.runId) handleMessageRef.current(event.message);
     } catch (caught) {
+      if (epoch.current !== launchEpoch) return;
       const detail = caught instanceof Error ? caught.message : String(caught);
       setError(detail);
       setState("error");
@@ -347,15 +385,27 @@ export function ContextBarWindow() {
     }
   };
 
-  const start = async (target: CodexAgent) => {
+  const start = async (target: CodexAgent, requestEpoch: number) => {
     const source = selectionRef.current ?? selection;
     if (!source || starting.current) return;
     composerCapturedFocus.current = false;
-    const workspace = target.workspaceMode === "fixed"
-      ? target.fixedWorkspacePath
-      : target.workspaceMode === "recent-project"
-        ? workspaces[0]?.path
-        : undefined;
+    if (target.contextPolicy.excludedApplications.some((application) => application.toLowerCase() === source.application.toLowerCase())) {
+      throw new Error(`${target.name} excludes ${source.application}`);
+    }
+    let workspace: string | undefined;
+    if (target.workspaceMode === "fixed") {
+      workspace = target.fixedWorkspacePath?.trim();
+      if (!workspace) throw new Error("Choose a fixed workspace in the agent settings first");
+    } else if (target.workspaceMode === "recent-project") {
+      workspace = workspaces[0]?.path;
+      if (!workspace) throw new Error("No recent workspace is available. Add a workspace in Studio.");
+    } else if (target.workspaceMode === "ask-each-time" || target.workspaceMode === "active-application") {
+      // Arbitrary apps do not expose a trustworthy filesystem working directory.
+      const selected = await chooseWorkspaceFolder();
+      if (!selected) { await setOverlayPinned(false); return; }
+      workspace = selected;
+      await focusSelectionApplication(source.processId);
+    }
     const runtimeAgent: CodexAgent = workspace
       ? { ...target, workspaceMode: "fixed", fixedWorkspacePath: workspace }
       : { ...target, workspaceMode: "none", fixedWorkspacePath: undefined };
@@ -363,18 +413,25 @@ export function ContextBarWindow() {
     const environment = workspace || usesNamedProfile
       ? await refreshCodexEnvironment(workspace, target.codexProfile)
       : null;
+    if (epoch.current !== requestEpoch) return;
+    if ((workspace || usesNamedProfile) && !environment) throw new Error("Could not load the Codex environment for this workspace/profile. Refresh it in Studio and try again.");
     await launchRun(runtimeAgent, runtimeAgent, source, "Codex is working", environment?.skills ?? skills, environment?.mcpServers ?? mcps);
   };
 
   const chooseAgent = async (target: CodexAgent) => {
     if (launchingAgentId || starting.current) return;
+    const requestEpoch = epoch.current;
     setLaunchingAgentId(target.id);
     try {
       await setOverlayPinned(true);
       const source = selectionRef.current ?? selection;
       if (source) await focusSelectionApplication(source.processId).catch(() => undefined);
       await wait(130);
-      await start(target);
+      if (epoch.current === requestEpoch) await start(target, requestEpoch);
+    } catch (caught) {
+      if (epoch.current !== requestEpoch) return;
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setState("error"); setContextBarState("error");
     } finally {
       setLaunchingAgentId(null);
     }
@@ -392,7 +449,7 @@ export function ContextBarWindow() {
   };
 
   const redirectToStudio = async () => {
-    await setOverlayPinned(false).catch(() => undefined);
+    await close();
     await openStudio();
   };
 
@@ -411,7 +468,7 @@ export function ContextBarWindow() {
     composerCapturedFocus.current = false;
     await setContextBarFocusable(false).catch(() => undefined);
     if (source) await focusSelectionApplication(source.processId).catch(() => undefined);
-    await setOverlayPinned(false);
+    await setOverlayPinned(true);
   };
 
   const continueRun = async (event: FormEvent) => {
@@ -467,6 +524,7 @@ export function ContextBarWindow() {
   };
 
   const cancel = async () => {
+    epoch.current += 1;
     const id = runId.current;
     if (id) {
       await interruptNativeRun(id).catch(() => undefined);
@@ -487,6 +545,7 @@ export function ContextBarWindow() {
   };
 
   const close = async () => {
+    epoch.current += 1;
     const id = runId.current;
     if (id) await stopNativeRun(id).catch(() => undefined);
     runId.current = null;
@@ -502,24 +561,47 @@ export function ContextBarWindow() {
     await hideContextBar();
   };
 
+  const applyReplacement = async (source: NativeSelection, text: string) => {
+    const replacementEpoch = epoch.current;
+    setReplacing(true);
+    setError("");
+    try {
+      await setContextBarFocusable(false);
+      await focusSelectionApplication(source.processId);
+      await wait(130);
+      if (epoch.current !== replacementEpoch) return;
+      const outcome = await replaceNativeSelection(text, source.selectionId);
+      if (epoch.current !== replacementEpoch) return;
+      if (outcome.verified) await close();
+      else setReplacementStatus("Replacement sent, but the editor could not confirm it. Check the source before pasting again. You can still copy the answer here.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally { setReplacing(false); }
+  };
+
   const replace = async () => {
     const source = selectionRef.current;
-    const sourceAllowsReplacement = source?.replacementCapability === "accessibility" || source?.replacementCapability === "clipboardPaste";
-    if (state !== "result" || !resultRef.current || !agent?.outputPolicy.allowReplace || !sourceAllowsReplacement) return;
+    if (replacing || replacementStatus || state !== "result" || !resultRef.current || !agent?.outputPolicy.allowReplace || !source || source.replacementCapability === "none") return;
+    await applyReplacement(source, resultRef.current);
+  };
+
+  outputActionRef.current = async (activeAgent, source, text) => {
     try {
-      await replaceNativeSelection(resultRef.current);
-      await close();
+      if (activeAgent.outputPolicy.mode === "copy") {
+        await copyNativeText(text); setCopied(true);
+      } else if (activeAgent.outputPolicy.mode === "open-studio") {
+        await close(); await openStudio(true);
+      } else if (activeAgent.outputPolicy.mode === "replace" && !replacementStatus && activeAgent.outputPolicy.allowReplace && source.replacementCapability !== "none") {
+        await applyReplacement(source, text);
+      }
     } catch (caught) {
-      const detail = caught instanceof Error ? caught.message : String(caught);
-      setError(detail);
-      setState("error");
-      setContextBarState("error");
+      setError(caught instanceof Error ? caught.message : String(caught));
     }
   };
 
   const copyMessage = async (message: ConversationMessage) => {
-    await copyNativeText(message.text);
-    setCopiedMessageId(message.id);
+    try { await copyNativeText(message.text); setCopiedMessageId(message.id); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
   };
 
   const agentButton = (item: CodexAgent, picker = false) => {
@@ -562,10 +644,10 @@ export function ContextBarWindow() {
       ? "The selected text is read-only"
       : undefined;
   const sourceAllowsReplacement = selection.replacementCapability === "accessibility" || selection.replacementCapability === "clipboardPaste";
-  const canReplace = Boolean(completed && result && agent?.outputPolicy.allowReplace && sourceAllowsReplacement);
+  const canReplace = Boolean(completed && result && agent?.outputPolicy.allowReplace && sourceAllowsReplacement && !replacing && !replacementStatus);
 
   return <div className={`context-wrap context-native state-${state}${showAll ? " picker-open" : ""}`}>
-    <div className="context-bar" role="region" aria-label="Latch Context Bar" onPointerDownCapture={() => void setOverlayPinned(true)}>
+    <div className="context-bar" role="region" aria-label="Latch Context Bar">
       <div className="context-state" key={`${state}-${showAll ? "picker" : "bar"}`}>
         {state === "idle" && <div className="context-idle-view">
           <div className="context-idle-header">
@@ -588,16 +670,17 @@ export function ContextBarWindow() {
         {(running || completed) && agent && <div className="context-run-view">
           <header className="context-run-header">
             <span className={running ? "working-icon" : "result-icon"}>{running ? <LoaderCircle size={18} /> : <Check size={17} />}</span>
-            <div className="context-run-copy"><strong>{agent.name}</strong><small>{running ? "Streaming response in Latch" : "Answer ready in Latch"}</small></div>
+            <div className="context-run-copy"><strong>{agent.name}</strong><small>{agent.sandbox === "full-access" && <strong className="context-access-warning">Full computer access · </strong>}{running ? "Streaming response in Latch" : "Answer ready in Latch"}</small></div>
             <div className="context-run-actions">
               <button type="button" className="result-button" disabled={!completed} onClick={() => void openContinuation()}><MessageCircle size={14} /> Continue</button>
               {running && <button type="button" className="result-button danger" onClick={() => void cancel()}><Square size={12} fill="currentColor" /> Cancel</button>}
               <button type="button" className="result-button primary" disabled={!canReplace} title={replacementDisabledReason} onClick={() => void replace()}><Replace size={14} /> Replace</button>
-              <button type="button" className="context-copy" disabled={!result} onClick={async () => { await copyNativeText(result); setCopied(true); }} aria-label="Copy response"><Copy size={15} /><span>{copied ? "Copied" : "Copy"}</span></button>
+              <button type="button" className="context-copy" disabled={!result} onClick={async () => { try { await copyNativeText(result); setCopied(true); } catch (caught) { setError(String(caught)); } }} aria-label="Copy response"><Copy size={15} /><span>{copied ? "Copied" : "Copy"}</span></button>
               <button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button>
               {completed && <button type="button" className="context-cancel" onClick={() => void close()} aria-label="Close"><X size={14} /></button>}
             </div>
           </header>
+          {completed && (error || replacementStatus) && <div className="context-replacement-status" role="status">{error || replacementStatus}</div>}
           {running && <div className="context-stream-progress"><i /></div>}
           <div ref={answerRef} className={`context-answer context-conversation${running ? " is-streaming" : ""}`} role="log" aria-live="polite">
             {messages.map((message) => <article key={message.id} className={`context-chat-message ${message.role}`}>
@@ -615,7 +698,7 @@ export function ContextBarWindow() {
             </article>)}
             {running && <article className="context-chat-message assistant is-streaming">
               <span>{agent.name}</span>
-              {result ? <p>{result}</p> : <div className="context-stream-placeholder"><i /><span>Codex is preparing the response…</span></div>}
+              {result && agent.outputPolicy.streamPreview ? <p>{result}</p> : <div className="context-stream-placeholder"><i /><span>Codex is preparing the response…</span></div>}
             </article>}
           </div>
           {instructionOpen && <form className="context-follow-up" onSubmit={(event) => void continueRun(event)}>
@@ -627,7 +710,7 @@ export function ContextBarWindow() {
         </div>}
 
         {state === "approval" && approval && <div className="context-run-view">
-          <header className="context-run-header"><span className="approval-icon"><ShieldAlert size={18} /></span><div className="context-run-copy"><strong>{approval.title}</strong><small>Codex needs your approval to continue here</small></div><div className="context-run-actions"><button type="button" className="allow-button" onClick={() => void answerApproval(true)}>Allow once</button><button type="button" className="deny-button" onClick={() => void answerApproval(false)}>Deny</button><button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void cancel()} aria-label="Cancel"><X size={14} /></button></div></header>
+          <header className="context-run-header"><span className="approval-icon"><ShieldAlert size={18} /></span><div className="context-run-copy"><strong>{approval.title}</strong><small>{agent?.sandbox === "full-access" && <strong className="context-access-warning">Full computer access · </strong>}Codex needs your approval to continue here</small></div><div className="context-run-actions"><button type="button" className="allow-button" onClick={() => void answerApproval(true)}>Allow once</button><button type="button" className="deny-button" onClick={() => void answerApproval(false)}>Deny</button><button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void cancel()} aria-label="Cancel"><X size={14} /></button></div></header>
           <div className="context-approval-detail">{approval.detail}</div>
         </div>}
 

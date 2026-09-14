@@ -56,6 +56,8 @@ The browser build is Studio-only. Selection capture and Codex execution intentio
 
 ## Run it
 
+Requires Node.js 22.12+ (Node 24 is also supported) and a Rust toolchain for the native app.
+
 ```bash
 npm install
 npm run dev
@@ -77,7 +79,7 @@ rustup update stable
 npm run tauri dev
 ```
 
-On first launch, open **Settings → Selection → Enable Accessibility** and allow Latch Bar under **System Settings → Privacy & Security → Accessibility**. Latch checks the permission silently on startup and prompts only after an explicit enable action. Select at least three characters in another application; the native Context Bar appears beside the selected range, including read-only website or document text when the source application exposes it. When a custom editor does not expose its selected text through Accessibility, Latch can issue a targeted Command-C after a selection gesture. It snapshots the existing pasteboard first and restores it immediately only if no newer clipboard owner has written. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** is enabled only when both the source control and the selected agent permit replacement. Direct Accessibility writes and guarded Command-V fallback both revalidate the original selection before changing it.
+On first launch, open **Settings → Selection → Enable Accessibility** and allow Latch Bar under **System Settings → Privacy & Security → Accessibility**. Latch checks the permission silently on startup and prompts only after an explicit enable action. Select at least three characters in another application; the native Context Bar appears beside the selected range, including read-only website or document text when the source application exposes it. When a custom editor does not expose its selected text through Accessibility, Latch can issue a targeted Command-C after a selection gesture. It snapshots the existing pasteboard first and restores it immediately only if no newer clipboard owner has written. Choosing an agent starts a real `codex app-server` turn using the existing Codex login. **Replace** is enabled only when both the source control and the selected agent permit replacement. Direct Accessibility writes and guarded Command-V fallback both revalidate the original selection before changing it. Latch distinguishes a verified edit from a dispatched edit the source app cannot confirm; an unverified edit keeps the answer visible and prevents a second automatic dispatch. When no safe replacement contract is available, copy the answer and paste it manually.
 
 macOS records privacy permissions against the app's code-signing identity. Ad-hoc builds are identified by a code hash, so rebuilding them invalidates an apparently enabled Accessibility entry. Persistent installed builds must therefore use an Apple signing identity:
 
@@ -128,3 +130,9 @@ The runtime protocol follows the current [Codex app-server documentation](https:
 - Context Bar clicks do not order Studio forward; only the explicit redirect opens and focuses Studio. The bar is clamped to the visible work area as it opens and expands.
 - Screenshot context is off by default.
 - Password managers and secure fields are excluded from contextual capture.
+
+## Audit and compatibility
+
+The [implementation audit](docs/IMPLEMENTATION_AUDIT.md) records the selection, replacement, workspace, privacy, and runtime findings, their fixes, and the signed-build acceptance matrix. Workspaces supports saved local folders alongside Codex history, with Finder, copy-path, and agent-creation actions. Unsupported desktop features are shown as unavailable.
+
+Local history retains at most 200 runs. Disabling it clears Latch's local history; Codex manages its own thread history independently.

@@ -28,6 +28,7 @@ mod windows;
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeSelection {
+    pub selection_id: String,
     pub text: String,
     pub application: String,
     pub window_title: Option<String>,
@@ -69,6 +70,7 @@ pub struct PlatformStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ReplacementResult {
     pub method: &'static str,
+    pub verified: bool,
 }
 
 pub trait PlatformAdapter: Send + Sync {
@@ -80,7 +82,11 @@ pub trait PlatformAdapter: Send + Sync {
         &self,
         excluded_applications: &[String],
     ) -> Result<Option<NativeSelection>, String>;
-    fn replace_selection(&self, text: &str) -> Result<ReplacementResult, String>;
+    fn replace_selection(
+        &self,
+        text: &str,
+        selection_id: &str,
+    ) -> Result<ReplacementResult, String>;
     fn copy_text(&self, text: &str) -> Result<(), String>;
 }
 
@@ -122,29 +128,39 @@ fn selection_is_allowed(selection: &NativeSelection, config: &MonitorConfig) -> 
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SelectionKey {
+    selection_id: String,
     process_id: i32,
     text: String,
-    x: i64,
-    y: i64,
-    width: i64,
-    height: i64,
     replacement_capability: ReplacementCapability,
 }
 
 fn selection_key(selection: &NativeSelection) -> SelectionKey {
-    // Accessibility bounds can move by a fraction of a point between reads. Half-point
-    // quantization keeps one selection stable while still distinguishing the same text
-    // selected somewhere else in the same application.
-    let coordinate = |value: f64| (value * 2.0).round() as i64;
     SelectionKey {
+        selection_id: selection.selection_id.clone(),
         process_id: selection.process_id,
         text: selection.text.clone(),
-        x: coordinate(selection.bounds.x),
-        y: coordinate(selection.bounds.y),
-        width: coordinate(selection.bounds.width),
-        height: coordinate(selection.bounds.height),
         replacement_capability: selection.replacement_capability,
     }
+}
+
+fn pointer_inside_context_bar(app: &AppHandle) -> bool {
+    let Some(window) = app.get_webview_window("context-bar") else {
+        return false;
+    };
+    if window.is_visible().ok() != Some(true) {
+        return false;
+    }
+    let (Ok(cursor), Ok(origin), Ok(size)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        return false;
+    };
+    cursor.x >= origin.x as f64
+        && cursor.y >= origin.y as f64
+        && cursor.x < origin.x as f64 + size.width as f64
+        && cursor.y < origin.y as f64 + size.height as f64
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -555,6 +571,7 @@ pub fn start_selection_monitor(
         let mut last_emitted: Option<SelectionKey> = None;
         let mut dismissed: Option<SelectionKey> = None;
         let mut missed_since: Option<Instant> = None;
+        let mut tracking_trusted = false;
         loop {
             std::thread::sleep(Duration::from_millis(120));
             let config = match monitor_config.lock() {
@@ -574,7 +591,12 @@ pub fn start_selection_monitor(
             if !context_bar_ready.load(Ordering::SeqCst) {
                 continue;
             }
-            if pinned.load(Ordering::SeqCst) {
+            let trusted = adapter.status(false).accessibility_trusted;
+            if trusted && !tracking_trusted {
+                let _ = adapter.start_selection_tracking();
+            }
+            tracking_trusted = trusted;
+            if pinned.load(Ordering::SeqCst) || pointer_inside_context_bar(&app) {
                 continue;
             }
 
@@ -594,6 +616,11 @@ pub fn start_selection_monitor(
             }
             .filter(|selection| selection_is_allowed(selection, &config));
 
+            // Capture may take several hundred milliseconds. Do not publish a new
+            // selection after the user has begun interacting with the overlay.
+            if pinned.load(Ordering::SeqCst) || pointer_inside_context_bar(&app) {
+                continue;
+            }
             let Some(selection) = selection else {
                 let had_selection = candidate.is_some() || last_emitted.is_some();
                 let missed = missed_since.get_or_insert_with(Instant::now);
@@ -632,6 +659,14 @@ pub fn start_selection_monitor(
             }
 
             let delivered = if let Some(window) = app.get_webview_window("context-bar") {
+                let scale = window.scale_factor().unwrap_or(1.0);
+                let size = window.outer_size().ok();
+                let width = size
+                    .as_ref()
+                    .map_or(CONTEXT_BAR_INITIAL_WIDTH, |size| size.width as f64 / scale);
+                let height = size.as_ref().map_or(CONTEXT_BAR_COMPACT_HEIGHT, |size| {
+                    size.height as f64 / scale
+                });
                 let monitor = window
                     .monitor_from_point(
                         selection.bounds.x + selection.bounds.width / 2.0,
@@ -646,14 +681,13 @@ pub fn start_selection_monitor(
                         context_bar_position(
                             &selection.bounds,
                             monitor_work_area(monitor),
-                            CONTEXT_BAR_INITIAL_WIDTH,
-                            CONTEXT_BAR_COMPACT_HEIGHT,
+                            width,
+                            height,
                         )
                     })
                     .unwrap_or_else(|| {
                         LogicalPosition::new(
-                            (selection.bounds.x + selection.bounds.width / 2.0
-                                - CONTEXT_BAR_INITIAL_WIDTH / 2.0)
+                            (selection.bounds.x + selection.bounds.width / 2.0 - width / 2.0)
                                 .max(CONTEXT_BAR_MARGIN),
                             (selection.bounds.y + selection.bounds.height + CONTEXT_BAR_GAP)
                                 .max(CONTEXT_BAR_MARGIN),
@@ -663,11 +697,7 @@ pub fn start_selection_monitor(
                 // visible. Show it first, then emit, and only suppress retries after both
                 // operations succeed.
                 window
-                    .set_size(LogicalSize::new(
-                        CONTEXT_BAR_INITIAL_WIDTH,
-                        CONTEXT_BAR_COMPACT_HEIGHT,
-                    ))
-                    .and_then(|_| window.set_position(position))
+                    .set_position(position)
                     .and_then(|_| window.show())
                     .and_then(|_| window.emit("native-selection", &selection))
                     .is_ok()
@@ -762,13 +792,17 @@ pub fn set_context_bar_focusable(app: AppHandle, focusable: bool) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn replace_selection(
-    state: State<PlatformState>,
+pub async fn replace_selection(
+    state: State<'_, PlatformState>,
     text: String,
+    selection_id: String,
 ) -> Result<ReplacementResult, String> {
-    let result = state.adapter.replace_selection(&text)?;
-    state.overlay_pinned.store(false, Ordering::SeqCst);
-    Ok(result)
+    let adapter = state.adapter.clone();
+    // The frontend owns dismissal. In particular, an unverified dispatch must
+    // leave the result pinned so the user can inspect it and copy the answer.
+    tauri::async_runtime::spawn_blocking(move || adapter.replace_selection(&text, &selection_id))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -777,11 +811,16 @@ pub fn copy_text(state: State<PlatformState>, text: String) -> Result<(), String
 }
 
 #[tauri::command]
-pub fn open_studio(app: AppHandle) -> Result<(), String> {
+pub fn open_studio(app: AppHandle, show_runs: Option<bool>) -> Result<(), String> {
     let window = app
         .get_webview_window("studio")
         .ok_or("Studio window is unavailable")?;
     window.show().map_err(|error| error.to_string())?;
+    if show_runs == Some(true) {
+        window
+            .emit("show-runs", ())
+            .map_err(|error| error.to_string())?;
+    }
     window.set_focus().map_err(|error| error.to_string())
 }
 
@@ -791,6 +830,7 @@ mod tests {
 
     fn selection(text: &str, application: &str) -> NativeSelection {
         NativeSelection {
+            selection_id: "selection-1".into(),
             text: text.into(),
             application: application.into(),
             window_title: None,
@@ -845,16 +885,17 @@ mod tests {
         let first = selection("same text", "TextEdit");
         let mut second = selection("same text", "TextEdit");
         second.bounds.x = 40.0;
+        second.selection_id = "selection-2".into();
 
         assert_ne!(selection_key(&first), selection_key(&second));
     }
 
     #[test]
-    fn selection_key_ignores_sub_half_point_accessibility_jitter() {
+    fn selection_key_ignores_geometry_changes_for_the_same_capture() {
         let first = selection("stable", "TextEdit");
         let mut second = selection("stable", "TextEdit");
-        second.bounds.x = 0.12;
-        second.bounds.y = 0.12;
+        second.bounds.x = 240.0;
+        second.bounds.y = 120.0;
 
         assert_eq!(selection_key(&first), selection_key(&second));
     }

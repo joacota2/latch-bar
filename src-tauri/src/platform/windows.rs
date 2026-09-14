@@ -27,7 +27,11 @@ impl PlatformAdapter for WindowsAdapter {
         Err("Windows UI Automation selection capture is not implemented yet".into())
     }
 
-    fn replace_selection(&self, _text: &str) -> Result<ReplacementResult, String> {
+    fn replace_selection(
+        &self,
+        _text: &str,
+        _selection_id: &str,
+    ) -> Result<ReplacementResult, String> {
         Err("Windows UI Automation replacement is not implemented yet".into())
     }
 
