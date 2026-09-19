@@ -21,7 +21,11 @@ impl PlatformAdapter for UnsupportedAdapter {
     ) -> Result<Option<NativeSelection>, String> {
         Ok(None)
     }
-    fn replace_selection(&self, _text: &str) -> Result<ReplacementResult, String> {
+    fn replace_selection(
+        &self,
+        _text: &str,
+        _selection_id: &str,
+    ) -> Result<ReplacementResult, String> {
         Err("Selection replacement is not supported on this platform".into())
     }
     fn copy_text(&self, text: &str) -> Result<(), String> {

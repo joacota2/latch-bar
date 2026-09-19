@@ -7,23 +7,25 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
 };
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
+const CONFIG_REQUEST_ID: &str = "latch:config";
 const TITLE_THREAD_REQUEST_ID: &str = "latch:title:thread";
 const TITLE_TURN_REQUEST_ID: &str = "latch:title:turn";
 const TITLE_NAME_REQUEST_ID: &str = "latch:title:name";
 const TITLE_UNSUBSCRIBE_REQUEST_ID: &str = "latch:title:unsubscribe";
 const TITLE_MODEL: &str = "gpt-5.4-mini";
 
-#[derive(Default)]
-pub struct RuntimeManager(Mutex<HashMap<String, RuntimeProcess>>);
+#[derive(Clone, Default)]
+pub struct RuntimeManager(Arc<Mutex<HashMap<String, RuntimeProcess>>>);
 
 struct RuntimeProcess {
+    starting: Arc<AtomicBool>,
     child: Arc<Mutex<Child>>,
     stdin: Arc<Mutex<ChildStdin>>,
     thread_id: Arc<Mutex<Option<String>>>,
@@ -48,8 +50,6 @@ pub struct AgentRuntimeConfig {
     enabled_mcp_servers: Vec<String>,
     #[serde(default)]
     enabled_skills: Vec<String>,
-    #[serde(default)]
-    resolved_mcp_servers: Vec<String>,
     #[serde(default)]
     resolved_skills: Vec<ResolvedSkill>,
 }
@@ -156,6 +156,35 @@ fn send(stdin: &Arc<Mutex<ChildStdin>>, value: &Value) -> Result<(), String> {
     stream.flush().map_err(|error| error.to_string())
 }
 
+fn runtime_mcp_overrides(result: Option<&Value>, enabled: &[String]) -> Result<Value, String> {
+    let config = result
+        .and_then(|result| result.get("config"))
+        .and_then(Value::as_object)
+        .ok_or("Could not read the effective MCP configuration; the run was not started")?;
+    let configured = match config.get("mcp_servers") {
+        Some(Value::Object(servers)) => servers.keys().cloned().collect::<Vec<_>>(),
+        Some(Value::Null) | None => Vec::new(),
+        _ => return Err("Codex returned an invalid MCP configuration".into()),
+    };
+    Ok(crate::scanner::mcp_config_overrides(&configured, enabled))
+}
+
+fn unsupported_request_response(message: &Value) -> Option<Value> {
+    let id = message.get("id")?;
+    let method = message.get("method")?.as_str()?;
+    if matches!(
+        method,
+        "item/commandExecution/requestApproval"
+            | "item/fileChange/requestApproval"
+            | "item/permissions/requestApproval"
+    ) {
+        return None;
+    }
+    Some(
+        json!({"id": id, "error": {"code": -32601, "message": format!("Latch does not support {method}; use Codex for this interaction")}}),
+    )
+}
+
 fn approval_policy(value: &str) -> &'static str {
     match value {
         "always-ask" => "untrusted",
@@ -173,22 +202,47 @@ fn sandbox(value: &str) -> &'static str {
 }
 
 #[tauri::command]
-pub fn start_codex_run(
+pub async fn start_codex_run(
     app: AppHandle,
-    manager: State<RuntimeManager>,
+    manager: State<'_, RuntimeManager>,
+    agent: AgentRuntimeConfig,
+    prompt: String,
+    title_source: String,
+) -> Result<StartRunResponse, String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        start_codex_run_blocking(app, manager, agent, prompt, title_source)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn start_codex_run_blocking(
+    app: AppHandle,
+    manager: RuntimeManager,
     agent: AgentRuntimeConfig,
     prompt: String,
     title_source: String,
 ) -> Result<StartRunResponse, String> {
     let run_id = Uuid::new_v4().to_string();
-    let cwd = if agent.workspace_mode == "fixed" {
-        agent
-            .fixed_workspace_path
-            .clone()
-            .map(crate::scanner::expand_user_path)
-    } else {
-        Some(projectless_cwd()?)
-    };
+    let cwd = Some(match agent.workspace_mode.as_str() {
+        "fixed" => {
+            let path = agent
+                .fixed_workspace_path
+                .clone()
+                .filter(|path| !path.trim().is_empty())
+                .map(crate::scanner::expand_user_path)
+                .ok_or("A fixed workspace path is required")?;
+            let path = fs::canonicalize(&path)
+                .map_err(|error| format!("Workspace is unavailable: {error}"))?;
+            if !path.is_dir() {
+                return Err("Workspace must be a directory".into());
+            }
+            path.to_string_lossy().into_owned()
+        }
+        "none" => projectless_cwd()?,
+        _ => return Err("Resolve the workspace before starting a run".into()),
+    });
     let profile = agent
         .codex_profile
         .as_deref()
@@ -227,7 +281,9 @@ pub fn start_codex_run(
         .reasoning_effort
         .clone()
         .filter(|value| value != "default");
+    let starting = Arc::new(AtomicBool::new(true));
     let process = RuntimeProcess {
+        starting: starting.clone(),
         child: child.clone(),
         stdin: stdin.clone(),
         thread_id: thread_id.clone(),
@@ -241,10 +297,17 @@ pub fn start_codex_run(
         .map_err(|_| "Runtime manager is unavailable")?
         .insert(run_id.clone(), process);
 
-    send(
+    if let Err(error) = send(
         &stdin,
         &json!({"method":"initialize","id":0,"params":{"clientInfo":{"name":"latch_bar","title":"Latch Bar","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}),
-    )?;
+    ) {
+        manager
+            .0
+            .lock()
+            .map_err(|_| "Runtime manager is unavailable")?
+            .remove(&run_id);
+        return Err(error);
+    }
     let model = agent
         .model
         .clone()
@@ -257,10 +320,6 @@ pub fn start_codex_run(
         .permission_profile
         .clone()
         .filter(|profile| !profile.is_empty() && profile != "default");
-    let config = crate::scanner::mcp_config_overrides(
-        &agent.resolved_mcp_servers,
-        &agent.enabled_mcp_servers,
-    );
     let mut thread_params = serde_json::Map::new();
     if let Some(model) = model {
         thread_params.insert("model".into(), json!(model));
@@ -280,7 +339,7 @@ pub fn start_codex_run(
     } else {
         thread_params.insert("sandbox".into(), json!(sandbox(&agent.sandbox)));
     }
-    thread_params.insert("config".into(), config);
+
     thread_params.insert("serviceName".into(), json!("latch_bar"));
     thread_params.insert("ephemeral".into(), json!(false));
     let thread_start_request = json!({"method":"thread/start","id":1,"params":thread_params});
@@ -305,12 +364,27 @@ pub fn start_codex_run(
         }
     });
 
+    let startup_pending = starting.clone();
+    let startup_child = child.clone();
+    let startup_app = app.clone();
+    let startup_run_id = run_id.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        if startup_pending.swap(false, Ordering::SeqCst) {
+            let _ = startup_app.emit("codex-event", json!({"runId": startup_run_id, "message": {"error": {"message": "Codex did not start the turn within 30 seconds"}}}));
+            if let Ok(mut child) = startup_child.lock() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    });
     let event_name = format!("codex-event:{run_id}");
     let generic_run_id = run_id.clone();
     let stdin_reader = stdin.clone();
     let prompt_reader = prompt.clone();
     let title_prompt = title_generation_prompt(&title_source);
     let title_fallback = fallback_title(&title_source);
+    let enabled_mcp_servers = agent.enabled_mcp_servers.clone();
     let enabled_skills = agent.enabled_skills.iter().collect::<HashSet<_>>();
     let skill_inputs = agent
         .resolved_skills
@@ -330,9 +404,31 @@ pub fn start_codex_run(
             };
             if message.get("id") == Some(&json!(0)) && message.get("result").is_some() {
                 if send(&stdin_reader, &json!({"method":"initialized"})).is_ok() {
-                    let _ = send(&stdin_reader, &thread_start_request);
-                    let _ = send(&stdin_reader, &title_thread_start_request);
+                    let _ = send(
+                        &stdin_reader,
+                        &json!({"id": CONFIG_REQUEST_ID, "method": "config/read", "params": {"includeLayers": false}}),
+                    );
                 }
+            }
+            if message.get("id") == Some(&json!(CONFIG_REQUEST_ID)) {
+                match runtime_mcp_overrides(message.get("result"), &enabled_mcp_servers) {
+                    Ok(config) => {
+                        let mut request = thread_start_request.clone();
+                        request["params"]["config"] = config;
+                        let _ = send(&stdin_reader, &request);
+                        let mut title_request = title_thread_start_request.clone();
+                        if let Ok(disabled) = runtime_mcp_overrides(message.get("result"), &[]) {
+                            title_request["params"]["config"]["mcp_servers"] =
+                                disabled["mcp_servers"].clone();
+                        }
+                        let _ = send(&stdin_reader, &title_request);
+                    }
+                    Err(error) => {
+                        starting.store(false, Ordering::SeqCst);
+                        let _ = event_app.emit("codex-event", json!({"runId": generic_run_id, "message": {"error": {"message": error}}}));
+                    }
+                }
+                continue;
             }
             if message.get("id") == Some(&json!(1)) {
                 if let Some(id) = message.pointer("/result/thread/id").and_then(Value::as_str) {
@@ -456,12 +552,31 @@ pub fn start_codex_run(
             if is_title_message || is_title_request {
                 continue;
             }
+            if !is_title_message && message.get("method") == Some(&json!("turn/completed")) {
+                if let Ok(mut active) = turn_id.lock() {
+                    *active = None;
+                }
+            }
+            if message.get("method") == Some(&json!("turn/started"))
+                || message.get("error").is_some()
+            {
+                starting.store(false, Ordering::SeqCst);
+            }
+            if let Some(response) = unsupported_request_response(&message) {
+                let _ = send(&stdin_reader, &response);
+                continue;
+            }
             let _ = event_app.emit(&event_name, &message);
             let _ = event_app.emit(
                 "codex-event",
                 json!({"runId":generic_run_id,"message":message}),
             );
         }
+        starting.store(false, Ordering::SeqCst);
+        let _ = event_app.emit(
+            "codex-event",
+            json!({"runId": generic_run_id, "message": {"method": "runtime/exited"}}),
+        );
     });
     let error_app = app.clone();
     let error_run_id = run_id.clone();
@@ -482,6 +597,32 @@ pub fn start_codex_run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_restrictions_use_the_runtime_config_and_fail_closed() {
+        let config = json!({"config": {"mcp_servers": {"allowed": {}, "inherited": {}}}});
+        let overrides = runtime_mcp_overrides(Some(&config), &["allowed".into()]).unwrap();
+        assert_eq!(overrides["mcp_servers"]["allowed"]["enabled"], true);
+        assert_eq!(overrides["mcp_servers"]["inherited"]["enabled"], false);
+        assert!(runtime_mcp_overrides(None, &[]).is_err());
+        assert!(runtime_mcp_overrides(Some(&json!({})), &[]).is_err());
+    }
+
+    #[test]
+    fn unsupported_server_requests_receive_an_error_instead_of_hanging() {
+        assert!(unsupported_request_response(
+            &json!({"id": 1, "method": "item/commandExecution/requestApproval"})
+        )
+        .is_none());
+        assert!(unsupported_request_response(&json!({"id": 1, "result": {}})).is_none());
+        assert!(unsupported_request_response(&json!({"method": "turn/started"})).is_none());
+        let response = unsupported_request_response(
+            &json!({"id": "request", "method": "item/tool/requestUserInput"}),
+        )
+        .unwrap();
+        assert_eq!(response["id"], "request");
+        assert_eq!(response["error"]["code"], -32601);
+    }
 
     #[test]
     fn uses_a_neutral_codex_directory_for_projectless_runs() {
@@ -580,7 +721,7 @@ pub fn interrupt_codex_run(manager: State<RuntimeManager>, run_id: String) -> Re
         .ok_or("Turn has not started")?;
     send(
         &process.stdin,
-        &json!({"method":"turn/interrupt","id":99,"params":{"threadId":thread_id,"turnId":turn_id}}),
+        &json!({"method":"turn/interrupt","id":process.next_request_id.fetch_add(1, Ordering::SeqCst),"params":{"threadId":thread_id,"turnId":turn_id}}),
     )
 }
 
@@ -592,11 +733,24 @@ pub fn stop_codex_run(manager: State<RuntimeManager>, run_id: String) -> Result<
         .map_err(|_| "Runtime manager is unavailable")?
         .remove(&run_id)
         .ok_or("Run not found")?;
-    let result = process
-        .child
-        .lock()
-        .map_err(|_| "Codex process is unavailable")?
-        .kill()
-        .map_err(|error| error.to_string());
-    result
+    drop(process);
+    Ok(())
+}
+
+impl Drop for RuntimeProcess {
+    fn drop(&mut self) {
+        self.starting.store(false, Ordering::SeqCst);
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl RuntimeManager {
+    pub fn shutdown(&self) {
+        if let Ok(mut processes) = self.0.lock() {
+            processes.clear();
+        }
+    }
 }

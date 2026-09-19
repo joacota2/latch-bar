@@ -902,10 +902,26 @@ fn discover_profiles(home: &Path, config_response: Option<&Value>) -> Vec<String
 }
 
 #[tauri::command]
-pub fn scan_codex_environment(
+pub async fn scan_codex_environment(
     workspace_path: Option<String>,
     profile: Option<String>,
 ) -> Result<EnvironmentSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        scan_codex_environment_blocking(workspace_path, profile)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn scan_codex_environment_blocking(
+    workspace_path: Option<String>,
+    profile: Option<String>,
+) -> Result<EnvironmentSnapshot, String> {
+    if let Some(path) = workspace_path.as_ref() {
+        if !Path::new(&expand_user_path(path.clone())).is_dir() {
+            return Err("Workspace must be an existing directory".into());
+        }
+    }
     let cwd = workspace_path.map(expand_user_path).or_else(|| {
         env::current_dir()
             .ok()

@@ -172,6 +172,7 @@ export interface CodexSkill {
 }
 
 export interface Workspace {
+  saved?: boolean;
   id: string;
   name: string;
   path: string;
@@ -213,6 +214,7 @@ export interface AppSettings {
 }
 
 export interface NativeSelection {
+  selectionId: string;
   text: string;
   application: string;
   windowTitle?: string;

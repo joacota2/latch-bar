@@ -49,12 +49,12 @@ export function AgentsPage() {
         <SectionLabel meta={<span className={settings.contextBarEnabled ? "live-label" : "live-label off"}><i /> {settings.contextBarEnabled ? "Showing in Context Bar" : "Context Bar paused"}</span>}>Pinned</SectionLabel>
         <div className="agent-card-grid">
           {pinned.map((agent) => <AgentCard agent={agent} key={agent.id} />)}
-          <button className="pin-placeholder" onClick={createAgent}><Plus size={19} /><span>Pin another agent</span><small>Extra pins stay available in the picker</small></button>
+          <button className="pin-placeholder" onClick={() => createAgent()}><Plus size={19} /><span>Pin another agent</span><small>Extra pins stay available in the picker</small></button>
         </div>
       </section>
 
       <section className="content-section all-agents-section">
-        <SectionLabel meta={<button className="primary-button" onClick={createAgent}><Plus size={16} /> New agent</button>}>All agents <span className="count">{agents.length}</span></SectionLabel>
+        <SectionLabel meta={<button className="primary-button" onClick={() => createAgent()}><Plus size={16} /> New agent</button>}>All agents <span className="count">{agents.length}</span></SectionLabel>
         <div className="agent-table">
           <div className="agent-table-head"><span>Agent</span><span>Runtime</span><span>Access</span><span>Pin</span><span>Active</span><span /></div>
           {agents.map((agent) => <AgentRow agent={agent} key={agent.id} />)}

@@ -3,7 +3,7 @@ use super::{
     SelectionBounds,
 };
 use core_foundation::{
-    base::{CFGetTypeID, CFRelease, CFRetain, CFTypeRef, TCFType},
+    base::{CFEqual, CFGetTypeID, CFRelease, CFRetain, CFTypeID, CFTypeRef, TCFType},
     boolean::{CFBoolean, CFBooleanRef},
     dictionary::CFDictionary,
     runloop::CFRunLoop,
@@ -58,6 +58,7 @@ impl Drop for OwnedAxElement {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CFRange {
     location: isize,
     length: isize,
@@ -99,10 +100,14 @@ extern "C" {
         settable: *mut bool,
     ) -> i32;
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
+    fn AXValueGetTypeID() -> CFTypeID;
     fn AXValueGetValue(value: CFTypeRef, value_type: u32, output: *mut c_void) -> bool;
 }
 
 struct SelectionTarget {
+    selection_id: String,
+    range: Option<CFRange>,
+    generation: u64,
     selection_element: Option<AXUIElementRef>,
     paste_element: Option<AXUIElementRef>,
     process_id: i32,
@@ -228,9 +233,16 @@ fn attribute(name: &str) -> CFString {
 unsafe fn copied_value(element: AXUIElementRef, name: &str) -> Option<CFTypeRef> {
     let name = attribute(name);
     let mut value: CFTypeRef = ptr::null();
-    (AXUIElementCopyAttributeValue(element, name.as_concrete_TypeRef(), &mut value) == 0
-        && !value.is_null())
-    .then_some(value)
+    if AXUIElementCopyAttributeValue(element, name.as_concrete_TypeRef(), &mut value) == 0
+        && !value.is_null()
+    {
+        Some(value)
+    } else {
+        if !value.is_null() {
+            CFRelease(value);
+        }
+        None
+    }
 }
 
 unsafe fn copied_string(element: AXUIElementRef, name: &str) -> Option<String> {
@@ -244,6 +256,10 @@ unsafe fn copied_string(element: AXUIElementRef, name: &str) -> Option<String> {
 
 unsafe fn copied_range(element: AXUIElementRef, name: &str) -> Option<CFRange> {
     let value = copied_value(element, name)?;
+    if CFGetTypeID(value) != AXValueGetTypeID() {
+        CFRelease(value);
+        return None;
+    }
     let mut range = CFRange {
         location: 0,
         length: 0,
@@ -359,6 +375,64 @@ unsafe fn replacement_capability(element: AXUIElementRef) -> ReplacementCapabili
     )
 }
 
+unsafe fn selection_range_matches(target: &SelectionTarget, element: AXUIElementRef) -> bool {
+    target.range.is_none() || copied_range(element, "AXSelectedTextRange") == target.range
+}
+
+unsafe fn target_has_keyboard_focus(target: AXUIElementRef, process_id: i32) -> bool {
+    let application = OwnedAxElement(AXUIElementCreateApplication(process_id));
+    if application.0.is_null() {
+        std::mem::forget(application);
+        return false;
+    }
+    let Some(focused) = copied_value(application.0, "AXFocusedUIElement") else {
+        return false;
+    };
+    let focused = OwnedAxElement(focused);
+    CFEqual(focused.0, target) != 0
+        || confidently_editable_target(focused.0)
+            .is_some_and(|editable| CFEqual(editable.0, target) != 0)
+}
+
+fn replace_utf16_range(value: &str, range: CFRange, replacement: &str) -> Option<String> {
+    let units = value.encode_utf16().collect::<Vec<_>>();
+    let start = usize::try_from(range.location).ok()?;
+    let end = start.checked_add(usize::try_from(range.length).ok()?)?;
+    if end > units.len() {
+        return None;
+    }
+    let mut result = units[..start].to_vec();
+    result.extend(replacement.encode_utf16());
+    result.extend_from_slice(&units[end..]);
+    String::from_utf16(&result).ok()
+}
+
+unsafe fn expected_value(
+    element: AXUIElementRef,
+    range: Option<CFRange>,
+    text: &str,
+) -> Option<String> {
+    replace_utf16_range(&copied_string(element, "AXValue")?, range?, text)
+}
+
+fn verify_replacement(element: AXUIElementRef, expected: Option<&str>, replacement: &str) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < REPLACEMENT_VERIFY_TIMEOUT {
+        let verified = unsafe {
+            if let Some(expected) = expected {
+                copied_string(element, "AXValue").as_deref() == Some(expected)
+            } else {
+                selected_text(element).as_deref() == Some(replacement)
+            }
+        };
+        if verified {
+            return true;
+        }
+        std::thread::sleep(REPLACEMENT_VERIFY_INTERVAL);
+    }
+    false
+}
+
 unsafe fn selected_text(element: AXUIElementRef) -> Option<String> {
     if let Some(text) = copied_string(element, "AXSelectedText").filter(|value| !value.is_empty()) {
         return Some(text);
@@ -430,7 +504,9 @@ unsafe fn selected_element(mut element: AXUIElementRef) -> SelectedElementResult
     SelectedElementResult::None
 }
 
-unsafe fn selection_targets() -> Option<(Vec<AXUIElementRef>, i32, Option<usize>, Option<usize>)> {
+unsafe fn selection_targets(
+    selection_point: Option<SelectionBounds>,
+) -> Option<(Vec<AXUIElementRef>, i32, Option<usize>, Option<usize>)> {
     let system = AXUIElementCreateSystemWide();
     if system.is_null() {
         return None;
@@ -470,7 +546,7 @@ unsafe fn selection_targets() -> Option<(Vec<AXUIElementRef>, i32, Option<usize>
     // Some apps expose no AXFocusedUIElement at all (and web apps may leave focus in
     // a composer while the user selects message text elsewhere). macOS hit-testing
     // still exposes the element at the selection endpoint, so query the pointer too.
-    let hit_tested = cursor_bounds().and_then(|bounds| {
+    let hit_tested = selection_point.or_else(cursor_bounds).and_then(|bounds| {
         let mut element: AXUIElementRef = ptr::null();
         let result = AXUIElementCopyElementAtPosition(
             system,
@@ -578,6 +654,10 @@ unsafe fn window_title(element: AXUIElementRef) -> Option<String> {
 
 unsafe fn selection_bounds(element: AXUIElementRef) -> Option<SelectionBounds> {
     let range = copied_value(element, "AXSelectedTextRange")?;
+    if CFGetTypeID(range) != AXValueGetTypeID() {
+        CFRelease(range);
+        return None;
+    }
     let mut decoded_range = CFRange {
         location: 0,
         length: 0,
@@ -599,9 +679,16 @@ unsafe fn selection_bounds(element: AXUIElementRef) -> Option<SelectionBounds> {
     );
     CFRelease(range);
     if result != 0 || raw_bounds.is_null() {
+        if !raw_bounds.is_null() {
+            CFRelease(raw_bounds);
+        }
         return None;
     }
 
+    if CFGetTypeID(raw_bounds) != AXValueGetTypeID() {
+        CFRelease(raw_bounds);
+        return None;
+    }
     let mut bounds = CGRect::new(
         &core_graphics::geometry::CGPoint::new(0.0, 0.0),
         &core_graphics::geometry::CGSize::new(0.0, 0.0),
@@ -706,6 +793,9 @@ fn mouse_interaction_kind(
 }
 
 fn record_mouse_event(state: &Arc<Mutex<GestureState>>, event_type: CGEventType, event: &CGEvent) {
+    if event_process_id(event) == std::process::id() as i32 {
+        return;
+    }
     let point = event.location();
     let process_id = event_process_id(event);
     let Ok(mut state) = state.lock() else {
@@ -757,6 +847,9 @@ fn record_mouse_event(state: &Arc<Mutex<GestureState>>, event_type: CGEventType,
 }
 
 fn record_keyboard_event(state: &Arc<Mutex<GestureState>>, event: &CGEvent) {
+    if event_process_id(event) == std::process::id() as i32 {
+        return;
+    }
     let key_code = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
     let Some(kind) = keyboard_interaction_kind(key_code, event.get_flags()) else {
         return;
@@ -873,9 +966,15 @@ fn post_copy_shortcut(process_id: i32) -> Result<(), String> {
 }
 
 fn capture_via_clipboard(process_id: i32) -> Result<Option<String>, String> {
+    if frontmost_process_id() != process_id {
+        return Ok(None);
+    }
     let snapshot = ClipboardSnapshot::capture()?;
     let pasteboard = NSPasteboard::generalPasteboard();
     if pasteboard.changeCount() != snapshot.change_count {
+        return Ok(None);
+    }
+    if frontmost_process_id() != process_id {
         return Ok(None);
     }
     post_copy_shortcut(process_id)?;
@@ -911,6 +1010,9 @@ fn capture_via_clipboard(process_id: i32) -> Result<Option<String>, String> {
         if let Err(error) = snapshot.restore_if_unchanged(change_count) {
             eprintln!("Could not restore clipboard after selection capture: {error}");
         }
+    }
+    if frontmost_process_id() != process_id {
+        return Ok(None);
     }
     Ok(captured_text)
 }
@@ -1078,20 +1180,35 @@ impl MacOsAdapter {
     fn paste_to_target(
         &self,
         text: &str,
-        process_id: i32,
-        target: AXUIElementRef,
-        original_text: &str,
+        target: &SelectionTarget,
     ) -> Result<ReplacementResult, String> {
-        // Chromium and Electron often expose the selection on a descendant while the
-        // keyboard destination is its editable ancestor. Focus that retained ancestor
-        // explicitly before sending the paste shortcut to the source process.
-        unsafe { focus_editable_target(target, process_id) };
-        let focused_text = capture_via_clipboard(process_id)?
-            .ok_or("The original editable selection lost focus")?;
-        if focused_text != original_text {
-            return Err("The original editable selection lost focus".into());
+        let editable = target
+            .paste_element
+            .ok_or("The editable control is no longer available")?;
+        let selection_element = target.selection_element.unwrap_or(editable);
+        unsafe {
+            if !element_is_confidently_editable(editable) {
+                return Err("The original control is no longer editable".into());
+            }
+            // Focus only the retained editor, never a newly hit-tested element.
+            focus_editable_target(editable, target.process_id);
         }
-        self.copy_text(text)?;
+        if frontmost_process_id() != target.process_id {
+            return Err("The source application is no longer active".into());
+        }
+        let observed = unsafe { selected_text(selection_element) };
+        let observed = match observed {
+            Some(text) => Some(text),
+            None => capture_via_clipboard(target.process_id)?,
+        };
+        if observed.as_deref() != Some(target.selected_text.as_str())
+            || !unsafe { selection_range_matches(target, selection_element) }
+            || !unsafe { target_has_keyboard_focus(editable, target.process_id) }
+        {
+            return Err("The original editable selection changed or cannot be verified. Copy the answer and paste it manually.".into());
+        }
+        let expected = unsafe { expected_value(selection_element, target.range, text) };
+        let snapshot = ClipboardSnapshot::capture()?;
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
             .map_err(|_| "Could not create a keyboard event source")?;
         let down = CGEvent::new_keyboard_event(source.clone(), KeyCode::ANSI_V, true)
@@ -1100,23 +1217,34 @@ impl MacOsAdapter {
             .map_err(|_| "Could not create the paste key-up event")?;
         down.set_flags(CGEventFlags::CGEventFlagCommand);
         up.set_flags(CGEventFlags::CGEventFlagCommand);
-        down.post_to_pid(process_id);
-        std::thread::sleep(Duration::from_millis(20));
-        up.post_to_pid(process_id);
-
-        if text != original_text {
-            // Posting a CGEvent only confirms delivery to the process, not that a web
-            // editor accepted it. Copy the current selection back: an unchanged original
-            // selection proves that the paste was ignored. A collapsed selection (None)
-            // or newly selected replacement both indicate that the target reacted.
-            std::thread::sleep(Duration::from_millis(80));
-            let observed = capture_via_clipboard(process_id)?;
-            if observed.as_deref() == Some(original_text) {
-                return Err("The source editor ignored the replacement".into());
-            }
+        if NSPasteboard::generalPasteboard().changeCount() != snapshot.change_count {
+            return Err("Clipboard changed before replacement; try again".into());
         }
+        self.copy_text(text)?;
+        let change_count = NSPasteboard::generalPasteboard().changeCount();
+        // Revalidate after the clipboard snapshot, which may materialize slow data.
+        if frontmost_process_id() != target.process_id
+            || !unsafe { target_has_keyboard_focus(editable, target.process_id) }
+            || !unsafe { selection_range_matches(target, selection_element) }
+            || unsafe { selected_text(selection_element) }
+                .is_some_and(|value| value != target.selected_text)
+        {
+            let _ = snapshot.restore_if_unchanged(change_count);
+            return Err("The source selection changed before paste".into());
+        }
+        down.post_to_pid(target.process_id);
+        std::thread::sleep(Duration::from_millis(20));
+        up.post_to_pid(target.process_id);
+        let verified = verify_replacement(selection_element, expected.as_deref(), text);
+        if verified {
+            let _ = snapshot.restore_if_unchanged(change_count);
+        }
+        // A missing/collapsed AX selection does not prove success. Leave the answer
+        // on the clipboard when the editor cannot acknowledge consumption, and let
+        // the UI report an unverified dispatch without retrying a destructive action.
         Ok(ReplacementResult {
             method: "clipboard-paste",
+            verified,
         })
     }
 }
@@ -1154,8 +1282,17 @@ impl PlatformAdapter for MacOsAdapter {
         if !unsafe { AXIsProcessTrusted() } {
             return Ok(None);
         }
+        let interaction = self.latest_interaction()?;
+        let selection_point = interaction
+            .as_ref()
+            .filter(|event| {
+                event.origin == InteractionOrigin::Pointer
+                    && event.occurred_at.elapsed() <= GESTURE_FRESHNESS
+            })
+            .map(|event| event.bounds.clone());
         unsafe {
-            let Some((targets, process_id, focused_index, hit_tested_index)) = selection_targets()
+            let Some((targets, process_id, focused_index, hit_tested_index)) =
+                selection_targets(selection_point)
             else {
                 return Ok(None);
             };
@@ -1182,7 +1319,45 @@ impl PlatformAdapter for MacOsAdapter {
                 return Ok(None);
             }
 
-            let interaction = self.latest_interaction()?;
+            if interaction.as_ref().is_some_and(|interaction| {
+                interaction.kind == InteractionKind::ClearSelection
+                    && interaction.occurred_at.elapsed() <= GESTURE_FRESHNESS
+                    && (interaction.process_id <= 0 || interaction.process_id == process_id)
+            }) {
+                self.mark_interaction_processed(interaction.as_ref())?;
+                for target in targets {
+                    CFRelease(target);
+                }
+                self.clear_selection_state();
+                return Ok(None);
+            }
+            let generation = interaction
+                .as_ref()
+                .map_or(0, |interaction| interaction.generation);
+            let unchanged = self
+                .target
+                .lock()
+                .map_err(|_| "Selection target is unavailable")?
+                .as_ref()
+                .is_some_and(|target| {
+                    target.generation == generation
+                        && target.process_id == process_id
+                        && target.selection_element.is_some_and(|element| {
+                            selected_text(element).as_deref() == Some(target.selected_text.as_str())
+                                && selection_range_matches(target, element)
+                        })
+                });
+            if unchanged {
+                for target in targets {
+                    CFRelease(target);
+                }
+                return self
+                    .last_selection
+                    .lock()
+                    .map(|value| value.clone())
+                    .map_err(|_| "Last selection state is unavailable".into());
+            }
+
             let title = targets.iter().find_map(|target| window_title(*target));
             let mut selected = None;
             let mut secure = false;
@@ -1267,7 +1442,9 @@ impl PlatformAdapter for MacOsAdapter {
                 } else {
                     ReplacementCapability::None
                 };
+                let selection_id = uuid::Uuid::new_v4().to_string();
                 let selection = NativeSelection {
+                    selection_id: selection_id.clone(),
                     text: text.clone(),
                     application,
                     window_title: title,
@@ -1279,6 +1456,11 @@ impl PlatformAdapter for MacOsAdapter {
                     .target
                     .lock()
                     .map_err(|_| "Selection target is unavailable")? = Some(SelectionTarget {
+                    selection_id,
+                    range: fallback_target
+                        .as_ref()
+                        .and_then(|target| copied_range(target.0, "AXSelectedTextRange")),
+                    generation: interaction.generation,
                     selection_element: None,
                     paste_element: fallback_target.map(OwnedAxElement::into_raw),
                     process_id,
@@ -1306,6 +1488,33 @@ impl PlatformAdapter for MacOsAdapter {
             }
             let (focused, text) = selected.expect("selection checked above");
             let focused = OwnedAxElement(focused);
+            let range = copied_range(focused.0, "AXSelectedTextRange");
+            let generation = interaction
+                .as_ref()
+                .map_or(0, |interaction| interaction.generation);
+            let unchanged = self
+                .target
+                .lock()
+                .map_err(|_| "Selection target is unavailable")?
+                .as_ref()
+                .is_some_and(|target| {
+                    target.process_id == process_id
+                        && target.selected_text == text
+                        && target.range == range
+                        && target.generation == generation
+                        && target
+                            .selection_element
+                            .is_some_and(|element| CFEqual(element, focused.0) != 0)
+                });
+            if unchanged {
+                return self
+                    .last_selection
+                    .lock()
+                    .map(|selection| selection.clone())
+                    .map_err(|_| "Last selection state is unavailable".into());
+            }
+            let selection_id = uuid::Uuid::new_v4().to_string();
+
             // Some WebKit/Electron controls expose AXSelectedText but not AXBoundsForRange.
             // Cache the pointer fallback for this selection so clicking the Context Bar does
             // not make the unchanged selection look new just because the pointer moved.
@@ -1344,11 +1553,14 @@ impl PlatformAdapter for MacOsAdapter {
                 }
             };
             let replacement_capability = replacement_capability(focused.0);
-            let paste_element = (replacement_capability == ReplacementCapability::ClipboardPaste)
+            let paste_element = (replacement_capability != ReplacementCapability::None)
                 .then(|| confidently_editable_target(focused.0))
                 .flatten()
                 .map(OwnedAxElement::into_raw);
             let selection_target = SelectionTarget {
+                selection_id: selection_id.clone(),
+                range,
+                generation,
                 selection_element: Some(focused.into_raw()),
                 paste_element,
                 process_id,
@@ -1360,6 +1572,7 @@ impl PlatformAdapter for MacOsAdapter {
                 .lock()
                 .map_err(|_| "Selection target is unavailable")? = Some(selection_target);
             let selection = NativeSelection {
+                selection_id,
                 text,
                 application,
                 window_title: title,
@@ -1375,84 +1588,78 @@ impl PlatformAdapter for MacOsAdapter {
         }
     }
 
-    fn replace_selection(&self, text: &str) -> Result<ReplacementResult, String> {
-        let target = self
+    fn replace_selection(
+        &self,
+        text: &str,
+        selection_id: &str,
+    ) -> Result<ReplacementResult, String> {
+        let mut stored = self
             .target
             .lock()
             .map_err(|_| "Selection target is unavailable")?;
-        let target = target
+        let target = stored
             .as_ref()
             .ok_or("The original selection is no longer available")?;
+        if target.selection_id != selection_id {
+            return Err(
+                "The original selection changed. Select the text again before replacing it.".into(),
+            );
+        }
         if frontmost_process_id() != target.process_id {
             return Err("The source application is no longer active".into());
         }
-
-        match target.replacement_capability {
+        let result = match target.replacement_capability {
             ReplacementCapability::None => Err("The original selection is not editable".into()),
             ReplacementCapability::Accessibility => {
                 let element = target
                     .selection_element
                     .ok_or("The editable selection target is no longer available")?;
-                let mut element_process_id = 0;
-                let target_is_current = unsafe {
-                    AXUIElementGetPid(element, &mut element_process_id) == 0
-                        && element_process_id == target.process_id
-                        && selected_text(element).as_deref() == Some(&target.selected_text)
+                let mut pid = 0;
+                let current = unsafe {
+                    AXUIElementGetPid(element, &mut pid) == 0
+                        && pid == target.process_id
+                        && selected_text(element).as_deref() == Some(target.selected_text.as_str())
+                        && selection_range_matches(target, element)
                         && attribute_is_settable(element, "AXSelectedText")
                 };
-                if !target_is_current {
+                if !current {
                     return Err("The original editable selection has changed".into());
                 }
-
+                let before = unsafe { copied_string(element, "AXValue") };
+                let expected = unsafe { expected_value(element, target.range, text) };
                 let replacement = CFString::new(text);
-                let selected_text_attribute = attribute("AXSelectedText");
                 let replaced = unsafe {
                     AXUIElementSetAttributeValue(
                         element,
-                        selected_text_attribute.as_concrete_TypeRef(),
+                        attribute("AXSelectedText").as_concrete_TypeRef(),
                         replacement.as_CFTypeRef(),
                     ) == 0
                 };
-                if !replaced {
-                    return Err("The source application rejected the replacement".into());
-                }
-                if text != target.selected_text {
-                    let started = Instant::now();
-                    while started.elapsed() < REPLACEMENT_VERIFY_TIMEOUT {
-                        if unsafe { selected_text(element) }.as_deref()
-                            != Some(target.selected_text.as_str())
-                        {
-                            break;
-                        }
-                        std::thread::sleep(REPLACEMENT_VERIFY_INTERVAL);
-                    }
-                    if unsafe { selected_text(element) }.as_deref()
+                if replaced {
+                    Ok(ReplacementResult {
+                        method: "accessibility",
+                        verified: verify_replacement(element, expected.as_deref(), text),
+                    })
+                } else if before.is_some()
+                    && unsafe { copied_string(element, "AXValue") } == before
+                    && target.paste_element.is_some()
+                    && unsafe { selected_text(element) }.as_deref()
                         == Some(target.selected_text.as_str())
-                    {
-                        return Err("The source editor did not apply the replacement".into());
-                    }
+                    && unsafe { selection_range_matches(target, element) }
+                {
+                    // Fall back only after a rejected write with an unchanged value and
+                    // selection. Never paste again after an ambiguous successful write.
+                    self.paste_to_target(text, target)
+                } else {
+                    Err("The source application rejected replacement. Copy the answer and paste it manually.".into())
                 }
-                Ok(ReplacementResult {
-                    method: "accessibility",
-                })
             }
-            ReplacementCapability::ClipboardPaste => {
-                let element = target
-                    .paste_element
-                    .ok_or("The editable selection target is no longer available")?;
-                let mut element_process_id = 0;
-                let target_is_editable = unsafe {
-                    AXUIElementGetPid(element, &mut element_process_id) == 0
-                        && element_process_id == target.process_id
-                        && element_is_confidently_editable(element)
-                };
-                if !target_is_editable {
-                    return Err("The original editable control is no longer available".into());
-                }
-
-                self.paste_to_target(text, target.process_id, element, &target.selected_text)
-            }
+            ReplacementCapability::ClipboardPaste => self.paste_to_target(text, target),
+        };
+        if result.is_ok() {
+            *stored = None;
         }
+        result
     }
 
     fn copy_text(&self, text: &str) -> Result<(), String> {
@@ -1464,6 +1671,73 @@ impl PlatformAdapter for MacOsAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_range_uses_utf16_offsets_and_rejects_invalid_boundaries() {
+        assert_eq!(
+            replace_utf16_range(
+                "a🙂bc",
+                CFRange {
+                    location: 1,
+                    length: 2
+                },
+                "é"
+            ),
+            Some("aébc".into())
+        );
+        assert_eq!(
+            replace_utf16_range(
+                "abc",
+                CFRange {
+                    location: 9,
+                    length: 1
+                },
+                "x"
+            ),
+            None
+        );
+        assert_eq!(
+            replace_utf16_range(
+                "a🙂bc",
+                CFRange {
+                    location: 2,
+                    length: 1
+                },
+                "x"
+            ),
+            None
+        );
+        assert_eq!(
+            replace_utf16_range(
+                "abc",
+                CFRange {
+                    location: -1,
+                    length: 1
+                },
+                "x"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn stale_selection_id_is_rejected_before_any_native_write() {
+        let adapter = MacOsAdapter::default();
+        *adapter.target.lock().unwrap() = Some(SelectionTarget {
+            selection_id: "new".into(),
+            range: None,
+            generation: 2,
+            selection_element: None,
+            paste_element: None,
+            process_id: 0,
+            selected_text: "same words".into(),
+            replacement_capability: ReplacementCapability::ClipboardPaste,
+        });
+        assert!(adapter
+            .replace_selection("replacement", "old")
+            .unwrap_err()
+            .contains("selection changed"));
+    }
 
     #[test]
     fn direct_replacement_takes_precedence_over_paste() {
