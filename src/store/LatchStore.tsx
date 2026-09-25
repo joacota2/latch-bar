@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, ContextBarState, McpServer, NavKey, Run, Workspace } from "../domain";
-import { seedAgents, seedRuns, seedSettings } from "../data/seed";
+import { DEFAULT_AGENTS_VERSION, seedAgents, seedRuns, seedSettings } from "../data/seed";
 import { isTauri, scanCodexEnvironment } from "../services/runtime";
 
 interface Toast { id: number; message: string }
@@ -48,6 +48,7 @@ const STORAGE_KEY = "latch-bar-state-v1";
 const STATE_EVENT = "latch-state-changed";
 
 interface PersistedState {
+  defaultAgentsVersion?: number;
   agents?: CodexAgent[];
   runs?: Run[];
   settings?: AppSettings;
@@ -57,7 +58,7 @@ interface PersistedState {
 function normalizePersisted(parsed: PersistedState | null) {
   if (!parsed) return null;
   const legacySeedIds = new Set(["run-security", "run-writing", "run-error", "run-plan"]);
-  const agents = parsed.agents?.map((agent) => {
+  let agents = parsed.agents?.map((agent) => {
     const current = { ...agent } as Omit<CodexAgent, "outputPolicy"> & {
       outputPolicy?: Partial<CodexAgent["outputPolicy"]>;
       speed?: string;
@@ -77,6 +78,16 @@ function normalizePersisted(parsed: PersistedState | null) {
       },
     } satisfies CodexAgent;
   });
+  if (agents && (parsed.defaultAgentsVersion ?? 0) < DEFAULT_AGENTS_VERSION) {
+    // Retire built-in IDs only; user-created agents and duplicates keep their own IDs.
+    const retiredIds = new Set(["staff-engineer", "ui-reviewer", "explain-error", "plan-implementation"]);
+    agents = agents.filter((agent) => !retiredIds.has(agent.id));
+    const addedIds = new Set(["summarize", "explain-simply", "draft-reply"]);
+    const existingIds = new Set(agents.map((agent) => agent.id));
+    let nextOrder = agents.reduce((max, agent) => Math.max(max, agent.order), -1) + 1;
+    const additions = seedAgents.filter((agent) => addedIds.has(agent.id) && !existingIds.has(agent.id));
+    agents = [...agents, ...additions.map((agent) => ({ ...agent, order: nextOrder++ }))];
+  }
   const settings = parsed.settings
     ? { ...seedSettings, ...parsed.settings } as AppSettings & { codexHome?: string; studioAppearance?: string; contextBarAppearance?: string }
     : undefined;
@@ -87,6 +98,7 @@ function normalizePersisted(parsed: PersistedState | null) {
   }
   return {
     ...parsed,
+    defaultAgentsVersion: Math.max(parsed.defaultAgentsVersion ?? 0, DEFAULT_AGENTS_VERSION),
     agents,
     settings,
     runs: parsed.settings?.storeHistory === false ? [] : parsed.runs?.filter((run) => !legacySeedIds.has(run.id) && run.sourceApplication !== "Selection preview" && !run.threadId?.startsWith("thr_preview_")),
@@ -187,7 +199,7 @@ export function LatchProvider({ children }: { children: ReactNode }) {
 
   const commit = useCallback((change: (current: Required<PersistedState>) => Required<PersistedState>) => {
     const latest = readPersisted();
-    const next = change({ agents: latest?.agents ?? seedAgents, runs: latest?.runs ?? [], settings: latest?.settings ?? seedSettings, savedWorkspaces: latest?.savedWorkspaces ?? [] });
+    const next = change({ defaultAgentsVersion: latest?.defaultAgentsVersion ?? DEFAULT_AGENTS_VERSION, agents: latest?.agents ?? seedAgents, runs: latest?.runs ?? [], settings: latest?.settings ?? seedSettings, savedWorkspaces: latest?.savedWorkspaces ?? [] });
     next.runs = next.settings.storeHistory ? next.runs.slice(0, 200).map((run) => ({
       ...run,
       conversation: next.settings.storeSelectedText ? run.conversation : run.conversation?.filter((message) => message.id !== "selected-text"),
