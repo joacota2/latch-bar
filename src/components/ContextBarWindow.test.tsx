@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NativeSelection } from "../domain";
-import { seedAgents, seedSettings } from "../data/seed";
+import { DEFAULT_AGENTS_VERSION, seedAgents, seedSettings } from "../data/seed";
 import { LatchProvider } from "../store/LatchStore";
 import { ContextBarWindow } from "./ContextBarWindow";
 
@@ -67,7 +67,7 @@ const selection = (text: string, x: number, replacementCapability: NativeSelecti
 function emit(event: string, payload: unknown) {
   const handler = mocks.listeners.get(event);
   if (!handler) throw new Error(`Missing ${event} listener`);
-  if (event === "latch-state-changed") localStorage.setItem("latch-bar-state-v1", JSON.stringify(payload));
+  if (event === "latch-state-changed") localStorage.setItem("latch-bar-state-v1", JSON.stringify({ ...(payload as object), defaultAgentsVersion: DEFAULT_AGENTS_VERSION }));
   act(() => handler({ payload }));
 }
 
@@ -202,7 +202,7 @@ describe("Context Bar lifecycle", () => {
 
     await user.click(screen.getByRole("button", { name: "Choose another agent" }));
     const picker = screen.getByRole("menu", { name: "All agents" });
-    expect(within(picker).getByRole("button", { name: "Run Plan implementation" })).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "Run Draft a reply" })).toBeInTheDocument();
     expect(mocks.openStudio).not.toHaveBeenCalled();
     expect(mocks.focusSelectionApplication).not.toHaveBeenCalled();
 
@@ -408,17 +408,18 @@ describe("Context Bar lifecycle", () => {
   });
 
   it("does not launch a projectless run after cancelling Ask each time", async () => {
+    localStorage.setItem("latch-bar-state-v1", JSON.stringify({ defaultAgentsVersion: DEFAULT_AGENTS_VERSION, agents: [{ ...seedAgents[0], workspaceMode: "ask-each-time" }], runs: [], settings: seedSettings }));
     const user = userEvent.setup();
     render(<LatchProvider><ContextBarWindow /></LatchProvider>);
     await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
     emit("native-selection", selection("Original", 20));
-    await user.click(screen.getByRole("button", { name: "Run Staff engineer" }));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.chooseWorkspaceFolder).toHaveBeenCalled());
     expect(mocks.startNativeRun).not.toHaveBeenCalled();
   });
 
   it.each(["copy", "replace", "open-studio"] as const)("honors the configured %s output action", async (mode) => {
-    localStorage.setItem("latch-bar-state-v1", JSON.stringify({ agents: [{ ...seedAgents[0], outputPolicy: { ...seedAgents[0].outputPolicy, mode, allowReplace: true } }], runs: [], settings: seedSettings }));
+    localStorage.setItem("latch-bar-state-v1", JSON.stringify({ defaultAgentsVersion: DEFAULT_AGENTS_VERSION, agents: [{ ...seedAgents[0], outputPolicy: { ...seedAgents[0].outputPolicy, mode, allowReplace: true } }], runs: [], settings: seedSettings }));
     const user = userEvent.setup();
     render(<LatchProvider><ContextBarWindow /></LatchProvider>);
     await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));

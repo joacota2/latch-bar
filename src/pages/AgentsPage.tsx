@@ -42,7 +42,7 @@ export function AgentsPage() {
       <section className="hero-banner">
         <div className="hero-icon"><Sparkles size={22} /></div>
         <div><span className="eyebrow">YOUR CODEX, EVERYWHERE</span><h2>One selection. The right expert.</h2><p>Highlight text in any app and your favorite Codex profiles appear right beside it.</p></div>
-        <div className="hero-preview" aria-label="Context bar preview"><span title="Improve writing" aria-label="Improve writing"><i>✦</i></span><span title="Staff engineer" aria-label="Staff engineer"><i>⌘</i></span><span title="Translate to English" aria-label="Translate to English"><i>EN</i></span><b>···</b></div>
+        <div className="hero-preview" aria-label="Context bar preview"><span title="Improve writing" aria-label="Improve writing"><i>✦</i></span><span title="Summarize" aria-label="Summarize"><i>≡</i></span><span title="Explain simply" aria-label="Explain simply"><i>?</i></span><b>···</b></div>
       </section>
 
       <section className="content-section">

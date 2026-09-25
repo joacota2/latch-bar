@@ -42,8 +42,8 @@ describe("Latch MVP", () => {
     render(<LatchProvider><App /></LatchProvider>);
     await user.keyboard("{Meta>}k{/Meta}");
     const search = screen.getByRole("textbox", { name: "Search Latch" });
-    await user.type(search, "Explain error{Enter}");
-    expect(screen.getByDisplayValue("Explain error")).toBeInTheDocument();
+    await user.type(search, "Explain simply{Enter}");
+    expect(screen.getByDisplayValue("Explain simply")).toBeInTheDocument();
   });
 
   it("opens usable help from the question-mark button", async () => {

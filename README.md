@@ -34,6 +34,8 @@
   </tr>
 </table>
 
+The five default agents are **Improve writing**, **Translate to English**, **Explain simply**, **Draft a reply**, and **Summarize**. Improve writing, Summarize, and Explain simply are pinned initially; all five work on selected text without a workspace or integrations.
+
 ### Keep the conversation in context
 
 <p align="center">
