@@ -11,6 +11,8 @@ import { WorkspacesPage } from "./pages/WorkspacesPage";
 import { useLatch } from "./store/LatchStore";
 import { getPlatformStatus, isTauri, startSelectionMonitor } from "./services/runtime";
 import { useEffect, useRef, useState } from "react";
+import { UpdateProvider, useUpdates } from "./store/UpdateStore";
+import { UpdateNotice, UpdateOverlay } from "./components/Updates";
 
 const pages = {
   agents: <AgentsPage />,
@@ -22,6 +24,11 @@ const pages = {
 };
 
 export function App() {
+  return <UpdateProvider><Studio /></UpdateProvider>;
+}
+
+function Studio() {
+  const { installing } = useUpdates();
   const { activeNav, setActiveNav, selectedAgentId, toasts, settings, notify } = useLatch();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("latch-sidebar-collapsed") === "true");
   const permissionChecked = useRef(false);
@@ -55,15 +62,19 @@ export function App() {
 
   return (
     <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
-      <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-      <div className="app-main">
-        <Topbar />
-        <main className="page-scroll">{pages[activeNav]}</main>
+      <div className="studio-content" inert={installing}>
+        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+        <div className="app-main">
+          <Topbar />
+          <UpdateNotice />
+          <main className="page-scroll">{pages[activeNav]}</main>
+        </div>
+        {selectedAgentId && <AgentEditor />}
+        <div className="toast-stack" aria-live="polite">
+          {toasts.map((toast) => <div className="toast" key={toast.id}><span>✓</span>{toast.message}</div>)}
+        </div>
       </div>
-      {selectedAgentId && <AgentEditor />}
-      <div className="toast-stack" aria-live="polite">
-        {toasts.map((toast) => <div className="toast" key={toast.id}><span>✓</span>{toast.message}</div>)}
-      </div>
+      <UpdateOverlay />
     </div>
   );
 }

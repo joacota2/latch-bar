@@ -1,7 +1,9 @@
+mod activity;
 mod app_server;
 mod platform;
 mod runtime;
 mod scanner;
+mod updates;
 
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -17,10 +19,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(platform::PlatformState::default())
         .manage(runtime::RuntimeManager::default())
+        .manage(updates::UpdateManager::default())
         .setup(|app| {
+            updates::schedule(app.handle().clone());
             if let Err(error) =
                 app.global_shortcut()
                     .on_shortcut("Alt+Space", |app, _shortcut, event| {
@@ -40,6 +45,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             studio_shortcut_registered,
+            updates::update_state,
+            updates::update_editor_state,
+            updates::check_for_updates,
+            updates::install_update,
             platform::platform_status,
             platform::repair_accessibility_permission,
             platform::context_bar_ready,

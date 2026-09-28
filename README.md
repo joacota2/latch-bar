@@ -93,6 +93,8 @@ The release bundle hook rejects unsigned macOS bundles. Use `npm run tauri build
 
 ## Releases
 
+Installed macOS releases check for updates automatically and offer **Update and restart** under **Settings → General → Updates**. Downloads happen only when requested. Active agents and unsaved profile editing block installation. Updates require public access to this repository's releases; users of versions without the updater must install its first release manually.
+
 Pull requests should use Conventional Commit titles such as `fix: ...`, `feat: ...`, or `feat!: ...` and should be squash-merged. Release Please keeps an automated release pull request up to date with the next SemVer version and changelog. Merging that release pull request creates a draft release and tag; GitHub Actions then builds one universal Intel and Apple Silicon DMG, signs it with Developer ID, notarizes and staples it, uploads its checksum, and publishes the release.
 
 If a release build fails after the draft and tag were created, rerun the failed job. The release workflow can also be started manually with that existing draft tag. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution convention and [docs/RELEASING.md](docs/RELEASING.md) for the one-time Apple and GitHub setup.

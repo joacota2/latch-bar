@@ -4,10 +4,14 @@ import { useEffect, useState } from "react";
 import { Toggle } from "../components/ui";
 import { getPlatformStatus, getRuntimeStatus, getStudioShortcutStatus, repairAccessibilityPermission, requestAccessibilityPermission, type PlatformStatus, type RuntimeStatus } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
+import { useUpdates } from "../store/UpdateStore";
+import { UpdatesPanel } from "../components/Updates";
 
 export function SettingsPage() {
   const { settings, updateSettings, codexEnvironment, environmentStatus, environmentError, refreshCodexEnvironment, notify } = useLatch();
   const [tab, setTab] = useState<"general" | "selection" | "codex" | "privacy" | "advanced">("general");
+  const { viewRequest } = useUpdates();
+  useEffect(() => { if (viewRequest) setTab("general"); }, [viewRequest]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [platform, setPlatform] = useState<PlatformStatus | null>(null);
   const [shortcutRegistered, setShortcutRegistered] = useState<boolean | null>(null);
@@ -72,6 +76,7 @@ export function SettingsPage() {
   return <div className="page settings-page">
     <div className="settings-tabs">{(["general", "selection", "codex", "privacy", "advanced"] as const).map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>
     {tab === "general" && <div className="settings-panel">
+      <UpdatesPanel />
       <div className="setting-group">
         <h3>Startup</h3>
         {row("Launch at login", "Not available in this version.", false, () => undefined, true)}

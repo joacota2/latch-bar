@@ -2,3 +2,5 @@
 /release-please-config.json @joacota2
 /.release-please-manifest.json @joacota2
 /scripts/check-macos-release-signing.sh @joacota2
+/scripts/updater-manifest*.mjs @joacota2
+/src-tauri/tauri.conf.json @joacota2
