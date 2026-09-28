@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/joacota2/latch-bar/compare/v0.2.1...v0.3.0) (2026-09-28)
+
+
+### Features
+
+* add signed in-app updates for macOS ([#13](https://github.com/joacota2/latch-bar/issues/13)) ([e62e33a](https://github.com/joacota2/latch-bar/commit/e62e33abec7504ffa7ac78a3c50bc19f554a5b53))
+* replace technical defaults with everyday agents ([#11](https://github.com/joacota2/latch-bar/issues/11)) ([c81a739](https://github.com/joacota2/latch-bar/commit/c81a73971e8fa65331455badd17c085121bf0602))
+
+
+### Bug Fixes
+
+* format Codex prompts with Markdown ([#10](https://github.com/joacota2/latch-bar/issues/10)) ([29f083b](https://github.com/joacota2/latch-bar/commit/29f083bfb2a3ce4b67db6caeeeaf20febbe84837))
+
 ## [0.2.1](https://github.com/joacota2/latch-bar/compare/v0.2.0...v0.2.1) (2026-09-25)
 
 
