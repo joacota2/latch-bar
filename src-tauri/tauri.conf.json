@@ -61,6 +61,15 @@
     "longDescription": "Select text in any application and run a permission-scoped Codex profile beside it.",
     "macOS": {
       "minimumSystemVersion": "12.0"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3MjJDQ0ZBOERBNzJENjYKUldSbUxhZU4rc3dpWnk5d3V2amdsOTljcjIreEdCRDkyN3BXcHVWYW1NS0hteVgwdzZMZ0pRMzEK",
+      "endpoints": [
+        "https://github.com/joacota2/latch-bar/releases/latest/download/latest.json"
+      ]
     }
   }
 }

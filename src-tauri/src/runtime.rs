@@ -1,3 +1,4 @@
+use crate::activity::{ActivityGate, RunActivity, RunPermit};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -22,9 +23,14 @@ const TITLE_UNSUBSCRIBE_REQUEST_ID: &str = "latch:title:unsubscribe";
 const TITLE_MODEL: &str = "gpt-5.4-mini";
 
 #[derive(Clone, Default)]
-pub struct RuntimeManager(Arc<Mutex<HashMap<String, RuntimeProcess>>>);
+pub struct RuntimeManager(
+    Arc<Mutex<HashMap<String, RuntimeProcess>>>,
+    pub ActivityGate,
+);
 
 struct RuntimeProcess {
+    activity: RunActivity,
+    pending_turn_request: Arc<AtomicU64>,
     starting: Arc<AtomicBool>,
     child: Arc<Mutex<Child>>,
     stdin: Arc<Mutex<ChildStdin>>,
@@ -209,9 +215,11 @@ pub async fn start_codex_run(
     prompt: String,
     title_source: String,
 ) -> Result<StartRunResponse, String> {
+    // Reserve before spawning, including time spent resolving the workspace.
+    let permit = manager.1.start_run()?;
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        start_codex_run_blocking(app, manager, agent, prompt, title_source)
+        start_codex_run_blocking(app, manager, agent, prompt, title_source, permit)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -223,6 +231,7 @@ fn start_codex_run_blocking(
     agent: AgentRuntimeConfig,
     prompt: String,
     title_source: String,
+    permit: RunPermit,
 ) -> Result<StartRunResponse, String> {
     let run_id = Uuid::new_v4().to_string();
     let cwd = Some(match agent.workspace_mode.as_str() {
@@ -282,7 +291,11 @@ fn start_codex_run_blocking(
         .clone()
         .filter(|value| value != "default");
     let starting = Arc::new(AtomicBool::new(true));
+    let activity = RunActivity::new(permit);
+    let pending_turn_request = Arc::new(AtomicU64::new(2));
     let process = RuntimeProcess {
+        activity: activity.clone(),
+        pending_turn_request: pending_turn_request.clone(),
         starting: starting.clone(),
         child: child.clone(),
         stdin: stdin.clone(),
@@ -368,6 +381,7 @@ fn start_codex_run_blocking(
     let startup_child = child.clone();
     let startup_app = app.clone();
     let startup_run_id = run_id.clone();
+    let startup_activity = activity.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(30));
         if startup_pending.swap(false, Ordering::SeqCst) {
@@ -376,6 +390,7 @@ fn start_codex_run_blocking(
                 let _ = child.kill();
                 let _ = child.wait();
             }
+            startup_activity.finish();
         }
     });
     let event_name = format!("codex-event:{run_id}");
@@ -425,6 +440,7 @@ fn start_codex_run_blocking(
                     }
                     Err(error) => {
                         starting.store(false, Ordering::SeqCst);
+                        activity.finish();
                         let _ = event_app.emit("codex-event", json!({"runId": generic_run_id, "message": {"error": {"message": error}}}));
                     }
                 }
@@ -556,6 +572,17 @@ fn start_codex_run_blocking(
                 if let Ok(mut active) = turn_id.lock() {
                     *active = None;
                 }
+                activity.finish();
+            }
+            // Release only errors for startup/turn requests, never unrelated RPC
+            // errors while a turn might still be running or awaiting approval.
+            if message.get("error").is_some()
+                && (message.get("id") == Some(&json!(0))
+                    || message.get("id") == Some(&json!(1))
+                    || message.get("id")
+                        == Some(&json!(pending_turn_request.load(Ordering::SeqCst))))
+            {
+                activity.finish();
             }
             if message.get("method") == Some(&json!("turn/started"))
                 || message.get("error").is_some()
@@ -573,6 +600,7 @@ fn start_codex_run_blocking(
             );
         }
         starting.store(false, Ordering::SeqCst);
+        activity.finish();
         let _ = event_app.emit(
             "codex-event",
             json!({"runId": generic_run_id, "message": {"method": "runtime/exited"}}),
@@ -667,11 +695,17 @@ pub fn continue_codex_run(
         .clone()
         .ok_or("Thread has not started")?;
     let request_id = process.next_request_id.fetch_add(1, Ordering::SeqCst);
-    *process
+    let mut active_turn = process
         .turn_id
         .lock()
-        .map_err(|_| "Turn state unavailable")? = None;
-    send(
+        .map_err(|_| "Turn state unavailable")?;
+    process.activity.resume(&manager.1)?;
+    process
+        .pending_turn_request
+        .store(request_id, Ordering::SeqCst);
+    *active_turn = None;
+    drop(active_turn);
+    let result = send(
         &process.stdin,
         &json!({
             "method":"turn/start",
@@ -682,7 +716,11 @@ pub fn continue_codex_run(
                 "effort":process.effort
             }
         }),
-    )
+    );
+    if result.is_err() {
+        process.activity.finish();
+    }
+    result
 }
 
 #[tauri::command]
@@ -744,6 +782,7 @@ impl Drop for RuntimeProcess {
             let _ = child.kill();
             let _ = child.wait();
         }
+        self.activity.finish();
     }
 }
 

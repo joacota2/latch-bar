@@ -126,19 +126,52 @@ jobs:
 
       - name: Build, sign, notarize app, and upload DMG
         id: tauri
-        uses: tauri-apps/tauri-action@944946e3e4cac6603d1fe8f514171e9ecd3c78aa # v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           LATCH_REQUIRE_NOTARIZED_RELEASE: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseDraft: true
           releaseAssetNamePattern: Latch-Bar[ext]
           uploadUpdaterJson: false
-          args: --target universal-apple-darwin --bundles dmg
+          args: --target universal-apple-darwin --bundles app,dmg
+
+      - name: Verify app and publish signed updater package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          APP_DIR="src-tauri/target/universal-apple-darwin/release/bundle/macos"
+          APP_PATH="$APP_DIR/Latch Bar.app"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl --assess --type execute --verbose=2 "$APP_PATH"
+          lipo -verify_arch arm64 x86_64 "$APP_PATH/Contents/MacOS/latch-bar"
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" = "${RELEASE_TAG#v}"
+          UPDATE_PATH="$RUNNER_TEMP/Latch-Bar.app.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$UPDATE_PATH" -C "$APP_DIR" 'Latch Bar.app'
+          mkdir -p "$RUNNER_TEMP/updater-extraction-check"
+          tar -xzf "$UPDATE_PATH" -C "$RUNNER_TEMP/updater-extraction-check"
+          codesign --verify --deep --strict "$RUNNER_TEMP/updater-extraction-check/Latch Bar.app"
+          xcrun stapler validate "$RUNNER_TEMP/updater-extraction-check/Latch Bar.app"
+          npm run tauri signer sign -- "$UPDATE_PATH"
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,body > "$RUNNER_TEMP/updater-release.json"
+          node scripts/updater-manifest.mjs src-tauri/tauri.conf.json "$RUNNER_TEMP/updater-release.json" "$UPDATE_PATH" "$UPDATE_PATH.sig" "$RUNNER_TEMP/latest.json"
+          gh release upload "$RELEASE_TAG" "$UPDATE_PATH" "$UPDATE_PATH.sig" "$RUNNER_TEMP/latest.json" --clobber
+          mkdir -p "$RUNNER_TEMP/updater-upload-check"
+          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/updater-upload-check" --pattern 'Latch-Bar.app.tar.gz*' --pattern latest.json
+          cmp "$UPDATE_PATH" "$RUNNER_TEMP/updater-upload-check/Latch-Bar.app.tar.gz"
+          cmp "$UPDATE_PATH.sig" "$RUNNER_TEMP/updater-upload-check/Latch-Bar.app.tar.gz.sig"
+          cmp "$RUNNER_TEMP/latest.json" "$RUNNER_TEMP/updater-upload-check/latest.json"
 
       - name: Notarize and verify final DMG
         env:

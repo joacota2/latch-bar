@@ -20,6 +20,7 @@ import {
   stopNativeRun,
 } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
+import { installingUpdate, onUpdateState } from "../services/updates";
 
 type BarState = "idle" | "running" | "approval" | "result" | "error";
 
@@ -41,6 +42,11 @@ const asText = (value: unknown) => typeof value === "string" ? value : "";
 const wait = (milliseconds: number) => new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
 
 export function ContextBarWindow() {
+  const [updating, setUpdating] = useState(false);
+  useEffect(() => {
+    const subscription = onUpdateState((next) => setUpdating(installingUpdate(next.phase)));
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, []);
   const {
     agents,
     mcps,
@@ -636,6 +642,7 @@ export function ContextBarWindow() {
   };
 
   if (!settings.contextBarEnabled || !selection) return null;
+  if (updating) return <div className="context-wrap context-native"><div className="context-bar context-updating" role="status">Latch Bar is updating. Please wait for it to restart.</div></div>;
   const running = state === "running";
   const completed = state === "result";
   const replacementDisabledReason = agent && !agent.outputPolicy.allowReplace

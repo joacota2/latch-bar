@@ -91,3 +91,42 @@ Before making the repository public:
 - Require review for changes to workflows and release configuration when another maintainer is available.
 - Continue pinning Actions to immutable commit SHAs.
 - Never add Apple credentials to pull-request workflows; fork pull requests must remain secret-free.
+
+## In-app updates
+
+The installed macOS release checks GitHub Releases 30 seconds after launch and every six hours. Settings → General → Updates also supports an immediate check. Only **Update and restart** downloads and installs a release. Active agent turns, startup, pending approvals, and an open profile editor block installation; installation blocks new turns until it finishes or fails. Development builds and browser previews do not check for updates.
+
+The stable endpoint is `https://github.com/joacota2/latch-bar/releases/latest/download/latest.json`. The repository must be public for anonymous downloads. Private-repository 404 responses are reported as failed checks, not as “up to date”. Never embed a GitHub token in the app. Existing users must manually install the first version containing this updater.
+
+### Signing key setup and backup
+
+The updater uses a separate signing key from Apple Developer ID. The public key is committed in `src-tauri/tauri.conf.json`; these private values belong in the `macos-release` GitHub environment:
+
+| Secret | Value |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | Full contents of the Tauri updater private key |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password protecting that key |
+
+The initial key and password were provisioned outside the repository at `~/.tauri/latch-bar/updater.key` and `~/.tauri/latch-bar/updater.password`, with owner-only permissions. The public copy is `updater.key.pub`. Back up the private key and password in a secure password manager: GitHub secrets cannot be downloaded, and replacing this key without a migration would strand existing installations.
+
+For a new distribution only, generate keys using `npm run tauri signer generate -- -w /secure/path/updater.key`, then upload the key and password to the environment and commit only the public key. Do not regenerate the current distribution's key during ordinary releases.
+
+### Release artifacts and validation
+
+The workflow builds both the DMG and application bundle. It verifies the application's code signature, stapled notarization ticket, version, and both executable architectures. After all bundle mutations, it creates `Latch-Bar.app.tar.gz` and signs that exact archive. `scripts/updater-manifest.mjs` verifies the signature against the configured public key and creates `latest.json` for both `darwin-aarch64` and `darwin-x86_64`. Both entries use the same universal archive and version-specific URL.
+
+The archive, `.sig`, and manifest are uploaded to the draft release and downloaded again to verify byte-for-byte correspondence. The release remains a draft if any check fails. Final DMG notarization and checksum verification still run before publication. Published versions remain immutable; ship a new higher version for a corrective release. Stable manifests reject prereleases.
+
+### End-to-end acceptance before rollout
+
+Use two increasing test versions of the app, signed with the same Apple identity and updater key. Build with a separate Tauri config overlay (`npm run tauri build -- --config /absolute/path/update-test.json`) overriding `version` and `plugins.updater.endpoints` to an HTTPS test manifest. The override is baked into that test build; do not alter the production endpoint or promote test releases to latest. Use a separate test hosting location or non-latest prereleases as artifact storage, with stable-format test version numbers in the test manifest. Keep test signing credentials outside source control.
+
+On both an Intel Mac and an Apple Silicon Mac:
+
+1. Install test version A into a writable Applications location. Create profiles and settings, enable Accessibility, and save history. Confirm there is no download until **Update and restart**.
+2. Publish test version B to the isolated test endpoint. Confirm automatic/manual detection, notes, **Later**, installation, restart, and the new installed version. Verify profiles, settings, history, and Accessibility still work.
+3. Repeat with a running agent, pending approval, a new turn starting, and an open profile editor. Installation must refuse without cancelling work. An idle Codex process must not block installation. Attempts to start or continue an agent while installing must fail with the updating explanation.
+4. Test offline checks, interrupted downloads, corrupt archive/signature, and an unwritable installation location. A failure must not restart the app or report success; it must release the activity lock and offer retry. macOS may request authorization for protected install locations; verify rejection is handled.
+5. Recheck installed version and retained data after restart. Do not claim either architecture validated until its actual install/update test passes.
+
+Automated checks: `npm run check:version`, `npm test` (includes manifest/signature tests), `npm run build`, `cargo check --manifest-path src-tauri/Cargo.toml --locked`, and `cargo test --manifest-path src-tauri/Cargo.toml --locked`.
