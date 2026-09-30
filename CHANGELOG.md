@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/joacota2/latch-bar/compare/v0.3.0...v0.3.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* correct lipo argument order in release verification ([c9b89b3](https://github.com/joacota2/latch-bar/commit/c9b89b326f4edb52a645626de9462b6e0c546257))
+
 ## [0.3.0](https://github.com/joacota2/latch-bar/compare/v0.2.1...v0.3.0) (2026-09-28)
 
 
