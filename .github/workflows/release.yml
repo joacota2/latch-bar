@@ -155,7 +155,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           spctl --assess --type execute --verbose=2 "$APP_PATH"
-          lipo -verify_arch arm64 x86_64 "$APP_PATH/Contents/MacOS/latch-bar"
+          lipo "$APP_PATH/Contents/MacOS/latch-bar" -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" = "${RELEASE_TAG#v}"
           UPDATE_PATH="$RUNNER_TEMP/Latch-Bar.app.tar.gz"
           COPYFILE_DISABLE=1 tar -czf "$UPDATE_PATH" -C "$APP_DIR" 'Latch Bar.app'
