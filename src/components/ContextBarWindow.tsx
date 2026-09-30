@@ -51,7 +51,7 @@ export function ContextBarWindow() {
     agents,
     mcps,
     skills,
-    workspaces,
+    ready, resetEpoch, recentWorkspace,
     refreshCodexEnvironment,
     settings,
     togglePin,
@@ -80,6 +80,14 @@ export function ContextBarWindow() {
   const epoch = useRef(0);
   const pendingEvents = useRef<RuntimeEvent[]>([]);
   const runId = useRef<string | null>(null);
+  const historyId = useRef<string | null>(null);
+  const historyEpoch = useRef("");
+  const observedEpoch = useRef("");
+  const captureEnabled = useRef(false);
+  captureEnabled.current = ready && settings.contextBarEnabled;
+  const [approvalError, setApprovalError] = useState("");
+  const [approvalPending, setApprovalPending] = useState(false);
+  const approvalInFlight = useRef(false);
   const turnActive = useRef(false);
   const starting = useRef(false);
   const startedAt = useRef(0);
@@ -136,10 +144,10 @@ export function ContextBarWindow() {
   const saveRun = useCallback((status: Run["status"], finalResponse?: string, activity?: string, conversation = messagesRef.current) => {
     const activeAgent = agentRef.current;
     const source = selectionRef.current;
-    const id = runId.current;
+    const id = historyId.current;
     if (!activeAgent || !source || !id || !settings.storeHistory) return;
     const duration = startedAt.current ? `${((Date.now() - startedAt.current) / 1000).toFixed(1)}s` : undefined;
-    upsertRun({
+    return upsertRun({
       id,
       agentId: activeAgent.id,
       agentName: activeAgent.name,
@@ -156,7 +164,7 @@ export function ContextBarWindow() {
       finalResponse,
       threadId: threadId.current,
       conversation: settings.storeSelectedText ? conversation : conversation.filter((message) => message.id !== "selected-text"),
-    });
+    }, historyEpoch.current);
   }, [settings.storeHistory, settings.storeSelectedText, upsertRun]);
 
   const finish = useCallback(async (message: RpcMessage) => {
@@ -290,12 +298,14 @@ export function ContextBarWindow() {
   handleMessageRef.current = handleMessage;
 
   useEffect(() => {
+    if (!ready) return;
     let disposed = false;
     const unlistenSelection = listen<NativeSelection>("native-selection", ({ payload }) => {
-      if (turnActive.current || starting.current) return;
+      if (!captureEnabled.current || turnActive.current || starting.current) return;
       const previousRunId = runId.current;
       if (previousRunId) void stopNativeRun(previousRunId).catch(() => undefined);
       runId.current = null;
+      historyId.current = null;
       threadId.current = undefined;
       resolvedModel.current = "";
       composerCapturedFocus.current = false;
@@ -336,10 +346,15 @@ export function ContextBarWindow() {
       void unlistenRuntime.then((unlisten) => unlisten());
       void unlistenPointer.then((unlisten) => unlisten());
     };
-  }, []);
+  }, [ready]);
 
   const launchRun = async (runtimeAgent: CodexAgent, displayAgent: CodexAgent, source: NativeSelection, activity: string, runtimeSkills: CodexSkill[] = skills, runtimeMcps: McpServer[] = mcps) => {
     const launchEpoch = epoch.current;
+    historyId.current = `attempt-${crypto.randomUUID()}`;
+    historyEpoch.current = resetEpoch;
+    setApprovalError("");
+    setApprovalPending(false);
+    approvalInFlight.current = false;
     pendingEvents.current = [];
     setShowAll(false);
     setInstructionOpen(false);
@@ -364,6 +379,8 @@ export function ContextBarWindow() {
     starting.current = true;
     turnActive.current = true;
     try {
+      await saveRun("running", undefined, activity);
+      if (epoch.current !== launchEpoch) return;
       await setOverlayPinned(true);
       const response = await startNativeRun(runtimeAgent, {
         selection: source.text,
@@ -383,6 +400,7 @@ export function ContextBarWindow() {
       setError(detail);
       setState("error");
       setContextBarState("error");
+      await saveRun("failed", undefined, detail);
       runId.current = null;
       turnActive.current = false;
       await setOverlayPinned(true);
@@ -393,7 +411,7 @@ export function ContextBarWindow() {
 
   const start = async (target: CodexAgent, requestEpoch: number) => {
     const source = selectionRef.current ?? selection;
-    if (!source || starting.current) return;
+    if (!ready || !settings.contextBarEnabled || !source || starting.current) return;
     composerCapturedFocus.current = false;
     if (target.contextPolicy.excludedApplications.some((application) => application.toLowerCase() === source.application.toLowerCase())) {
       throw new Error(`${target.name} excludes ${source.application}`);
@@ -403,7 +421,7 @@ export function ContextBarWindow() {
       workspace = target.fixedWorkspacePath?.trim();
       if (!workspace) throw new Error("Choose a fixed workspace in the agent settings first");
     } else if (target.workspaceMode === "recent-project") {
-      workspace = workspaces[0]?.path;
+      workspace = recentWorkspace;
       if (!workspace) throw new Error("No recent workspace is available. Add a workspace in Studio.");
     } else if (target.workspaceMode === "ask-each-time" || target.workspaceMode === "active-application") {
       // Arbitrary apps do not expose a trustworthy filesystem working directory.
@@ -436,7 +454,15 @@ export function ContextBarWindow() {
       if (epoch.current === requestEpoch) await start(target, requestEpoch);
     } catch (caught) {
       if (epoch.current !== requestEpoch) return;
-      setError(caught instanceof Error ? caught.message : String(caught));
+      const detail = caught instanceof Error ? caught.message : String(caught);
+      historyId.current = `attempt-${crypto.randomUUID()}`;
+      historyEpoch.current = resetEpoch;
+      agentRef.current = target;
+      startedAt.current = Date.now();
+      threadId.current = undefined;
+      messagesRef.current = [];
+      await saveRun("failed", undefined, detail);
+      setError(detail);
       setState("error"); setContextBarState("error");
     } finally {
       setLaunchingAgentId(null);
@@ -514,7 +540,10 @@ export function ContextBarWindow() {
   };
 
   const answerApproval = async (allow: boolean) => {
-    if (!approval || !runId.current) return;
+    if (!approval || !runId.current || approvalInFlight.current) return;
+    const approvalEpoch = epoch.current;
+    const id = runId.current;
+    approvalInFlight.current = true; setApprovalPending(true); setApprovalError("");
     const isPermission = approval.method === "item/permissions/requestApproval";
     const requested = asRecord(approval.params.permissions);
     const granted: Record<string, unknown> = {};
@@ -523,21 +552,33 @@ export function ContextBarWindow() {
     const response = isPermission
       ? { permissions: granted, scope: "turn" }
       : { decision: allow ? "accept" : "decline" };
-    await respondToApproval(runId.current, approval.requestId, response);
-    setApproval(null);
-    setState("running");
-    setContextBarState("running");
+    try {
+      await respondToApproval(id, approval.requestId, response);
+      if (epoch.current !== approvalEpoch || runId.current !== id || !turnActive.current) return;
+      setApproval(null); setState("running"); setContextBarState("running");
+      void saveRun("running", undefined, "Approval delivered");
+    } catch (caught) {
+      if (epoch.current === approvalEpoch) setApprovalError(`Could not deliver approval: ${caught instanceof Error ? caught.message : String(caught)}. Try again or cancel.`);
+    } finally {
+      approvalInFlight.current = false;
+      if (epoch.current === approvalEpoch) setApprovalPending(false);
+    }
   };
 
   const cancel = async () => {
     epoch.current += 1;
     const id = runId.current;
+    const wasActive = turnActive.current || starting.current;
+    turnActive.current = false;
+    runId.current = null;
     if (id) {
       await interruptNativeRun(id).catch(() => undefined);
       await stopNativeRun(id).catch(() => undefined);
-      saveRun("cancelled", undefined, "Cancelled");
     }
+    if (wasActive) await saveRun("cancelled", undefined, "Cancelled");
     runId.current = null;
+    historyId.current = null;
+    starting.current = false;
     turnActive.current = false;
     agentRef.current = null;
     selectionRef.current = null;
@@ -553,8 +594,14 @@ export function ContextBarWindow() {
   const close = async () => {
     epoch.current += 1;
     const id = runId.current;
-    if (id) await stopNativeRun(id).catch(() => undefined);
+    const wasActive = turnActive.current || starting.current;
+    turnActive.current = false;
     runId.current = null;
+    if (id) await stopNativeRun(id).catch(() => undefined);
+    if (wasActive) await saveRun("cancelled", undefined, "Cancelled");
+    runId.current = null;
+    historyId.current = null;
+    starting.current = false;
     turnActive.current = false;
     agentRef.current = null;
     selectionRef.current = null;
@@ -566,6 +613,20 @@ export function ContextBarWindow() {
     await setOverlayPinned(false);
     await hideContextBar();
   };
+
+  useEffect(() => {
+    if (!ready) return;
+    const reset = observedEpoch.current && observedEpoch.current !== resetEpoch;
+    observedEpoch.current = resetEpoch;
+    if (reset) {
+      // Invalidate pending launches and output actions before any asynchronous cleanup.
+      epoch.current += 1;
+      historyId.current = null;
+      void close();
+    } else if (!settings.contextBarEnabled && (selectionRef.current || starting.current)) {
+      void cancel();
+    }
+  }, [ready, resetEpoch, settings.contextBarEnabled]);
 
   const applyReplacement = async (source: NativeSelection, text: string) => {
     const replacementEpoch = epoch.current;
@@ -641,7 +702,7 @@ export function ContextBarWindow() {
     </button>;
   };
 
-  if (!settings.contextBarEnabled || !selection) return null;
+  if (!ready || !selection) return null;
   if (updating) return <div className="context-wrap context-native"><div className="context-bar context-updating" role="status">Latch Bar is updating. Please wait for it to restart.</div></div>;
   const running = state === "running";
   const completed = state === "result";
@@ -717,7 +778,7 @@ export function ContextBarWindow() {
         </div>}
 
         {state === "approval" && approval && <div className="context-run-view">
-          <header className="context-run-header"><span className="approval-icon"><ShieldAlert size={18} /></span><div className="context-run-copy"><strong>{approval.title}</strong><small>{agent?.sandbox === "full-access" && <strong className="context-access-warning">Full computer access · </strong>}Codex needs your approval to continue here</small></div><div className="context-run-actions"><button type="button" className="allow-button" onClick={() => void answerApproval(true)}>Allow once</button><button type="button" className="deny-button" onClick={() => void answerApproval(false)}>Deny</button><button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void cancel()} aria-label="Cancel"><X size={14} /></button></div></header>
+          <header className="context-run-header"><span className="approval-icon"><ShieldAlert size={18} /></span><div className="context-run-copy"><strong>{approval.title}</strong>{approvalError && <span role="alert">{approvalError}</span>}<small>{agent?.sandbox === "full-access" && <strong className="context-access-warning">Full computer access · </strong>}Codex needs your approval to continue here</small></div><div className="context-run-actions"><button type="button" className="allow-button" disabled={approvalPending} onClick={() => void answerApproval(true)}>Allow once</button><button type="button" className="deny-button" disabled={approvalPending} onClick={() => void answerApproval(false)}>Deny</button><button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void cancel()} aria-label="Cancel"><X size={14} /></button></div></header>
           <div className="context-approval-detail">{approval.detail}</div>
         </div>}
 

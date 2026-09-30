@@ -93,7 +93,7 @@ The release bundle hook rejects unsigned macOS bundles. Use `npm run tauri build
 
 ## Releases
 
-Installed macOS releases check for updates automatically and offer **Update and restart** under **Settings → General → Updates**. Downloads happen only when requested. Active agents and unsaved profile editing block installation. Updates require public access to this repository's releases; users of versions without the updater must install its first release manually.
+Installed macOS releases check for updates automatically and offer **Update and restart** under **Settings → General → Updates**. Downloads happen only when requested. Active agents and unsaved profile editing block installation. Releases are private: install GitHub CLI (`gh`) and run `gh auth login --hostname github.com` with an account that can read this repository. Latch uses that existing login to fetch the release manifest and archive through GitHub's API; it never bundles or persists a token, and archives must still pass updater signature verification. Versions with the old unauthenticated updater must install the first release containing this fix manually.
 
 Pull requests should use Conventional Commit titles such as `fix: ...`, `feat: ...`, or `feat!: ...` and should be squash-merged. Release Please keeps an automated release pull request up to date with the next SemVer version and changelog. Merging that release pull request creates a draft release and tag; GitHub Actions then builds one universal Intel and Apple Silicon DMG, signs it with Developer ID, notarizes and staples it, uploads its checksum, and publishes the release.
 
@@ -138,5 +138,7 @@ The runtime protocol follows the current [Codex app-server documentation](https:
 ## Audit and compatibility
 
 The [implementation audit](docs/IMPLEMENTATION_AUDIT.md) records the selection, replacement, workspace, privacy, and runtime findings, their fixes, and the signed-build acceptance matrix. Workspaces supports saved local folders alongside Codex history, with Finder, copy-path, and agent-creation actions. Unsupported desktop features are shown as unavailable.
+
+Desktop data is migrated from the legacy webview storage to `latch-state.json` in Tauri's application data directory. Studio and the Context Bar share atomic, revision-checked writes. Clear data resets both windows, stops active runtimes, and rejects pending writes from the old session. Runs interrupted by an app restart appear as cancelled. Browser preview saves require Web Locks support.
 
 Local history retains at most 200 runs. Disabling it clears Latch's local history; Codex manages its own thread history independently.

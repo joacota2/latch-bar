@@ -445,3 +445,5 @@ describe("Context Bar lifecycle", () => {
   });
 
 });
+
+vi.mock("../services/persistence", async (original) => (await import("../test/browserPersistence")).browserPersistence(original));

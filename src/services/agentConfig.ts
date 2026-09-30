@@ -19,10 +19,10 @@ const outputPolicySchema = z.object({
   expectedOutput: z.enum(["plain-text", "markdown", "code", "diff", "automatic"]),
 });
 
-const agentConfigSchema = z.object({
-  name: z.string().min(1),
+export const agentConfigSchema = z.object({
+  name: z.string().trim().min(1),
   description: z.string(),
-  icon: z.string().min(1),
+  icon: z.string().trim().min(1),
   accent: z.string().min(1),
   enabled: z.boolean(),
   pinned: z.boolean(),
@@ -103,6 +103,9 @@ export function applyAgentConfig(agent: CodexAgent, config: AgentConfig): CodexA
   return {
     ...agent,
     ...config,
+    fixedWorkspacePath: config.fixedWorkspacePath,
+    codexProfile: config.codexProfile,
+    permissionProfile: config.permissionProfile,
     contextPolicy: { ...config.contextPolicy },
     outputPolicy: { ...config.outputPolicy },
     enabledMcpServers: [...config.enabledMcpServers],

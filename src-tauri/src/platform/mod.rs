@@ -545,6 +545,7 @@ pub fn start_selection_monitor(
         .lock()
         .map_err(|_| "Selection monitor settings are unavailable")? = config;
     if !enabled {
+        app.state::<crate::runtime::RuntimeManager>().shutdown();
         state.overlay_pinned.store(false, Ordering::SeqCst);
         if let Some(window) = app.get_webview_window("context-bar") {
             let _ = window.hide();

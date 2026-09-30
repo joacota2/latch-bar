@@ -26,7 +26,7 @@ export function WorkspacesPage() {
     setChoosing(true);
     try {
       const path = await chooseWorkspaceFolder();
-      if (path) { addWorkspace(path); notify("Workspace saved"); }
+      if (path && await addWorkspace(path)) notify("Workspace saved");
     } catch (error) { notify(error instanceof Error ? error.message : String(error)); }
     finally { setChoosing(false); }
   };
@@ -45,7 +45,7 @@ export function WorkspacesPage() {
           {menu === workspace.id && <div className="workspace-menu" aria-label={`${workspace.name} actions`}>
             <button onClick={() => void perform(async () => { if (!isTauri()) throw new Error("Opening folders requires the desktop app"); await revealItemInDir(workspace.path); })}>Show in Finder</button>
             <button onClick={() => void perform(async () => { if (isTauri()) await copyNativeText(workspace.path); else await navigator.clipboard.writeText(workspace.path); notify("Workspace path copied"); })}>Copy path</button>
-            <button onClick={() => { if (workspace.saved) removeWorkspace(workspace.path); else addWorkspace(workspace.path); setMenu(null); notify(workspace.saved ? "Saved workspace removed; Codex history is unchanged" : "Workspace saved"); }}>{workspace.saved ? "Remove saved workspace" : "Save workspace"}</button>
+            <button onClick={() => void perform(async () => { const saved = await (workspace.saved ? removeWorkspace(workspace.path) : addWorkspace(workspace.path)); if (saved) notify(workspace.saved ? "Saved workspace removed; Codex history is unchanged" : "Workspace saved"); })}>{workspace.saved ? "Remove saved workspace" : "Save workspace"}</button>
             <button onClick={() => { createAgent(workspace.path); setMenu(null); }}>Create agent here</button>
           </div>}
         </div>

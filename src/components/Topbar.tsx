@@ -23,6 +23,7 @@ interface SearchEntry {
 
 export function Topbar() {
   const {
+    helpRequest,
     activeNav,
     agents,
     mcps,
@@ -37,6 +38,7 @@ export function Topbar() {
   } = useLatch();
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  useEffect(() => { if (helpRequest) { setHelpOpen(true); setSearchOpen(false); } }, [helpRequest]);
   const [query, setQuery] = useState("");
   const searchInput = useRef<HTMLInputElement>(null);
 
@@ -84,7 +86,7 @@ export function Topbar() {
 
   const toggleContextBar = async () => {
     const enabled = !settings.contextBarEnabled;
-    updateSettings({ contextBarEnabled: enabled });
+    if (!await updateSettings({ contextBarEnabled: enabled })) return;
     if (!enabled) {
       notify("Context Bar paused");
       return;

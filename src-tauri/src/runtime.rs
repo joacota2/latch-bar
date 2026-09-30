@@ -26,6 +26,7 @@ const TITLE_MODEL: &str = "gpt-5.4-mini";
 pub struct RuntimeManager(
     Arc<Mutex<HashMap<String, RuntimeProcess>>>,
     pub ActivityGate,
+    Arc<AtomicU64>,
 );
 
 struct RuntimeProcess {
@@ -216,10 +217,19 @@ pub async fn start_codex_run(
     title_source: String,
 ) -> Result<StartRunResponse, String> {
     // Reserve before spawning, including time spent resolving the workspace.
+    let generation = manager.2.load(Ordering::SeqCst);
     let permit = manager.1.start_run()?;
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        start_codex_run_blocking(app, manager, agent, prompt, title_source, permit)
+        start_codex_run_blocking(
+            app,
+            manager,
+            agent,
+            prompt,
+            title_source,
+            permit,
+            generation,
+        )
     })
     .await
     .map_err(|error| error.to_string())?
@@ -232,6 +242,7 @@ fn start_codex_run_blocking(
     prompt: String,
     title_source: String,
     permit: RunPermit,
+    generation: u64,
 ) -> Result<StartRunResponse, String> {
     let run_id = Uuid::new_v4().to_string();
     let cwd = Some(match agent.workspace_mode.as_str() {
@@ -304,11 +315,13 @@ fn start_codex_run_blocking(
         next_request_id: AtomicU64::new(3),
         effort: effort.clone(),
     };
-    manager
-        .0
-        .lock()
-        .map_err(|_| "Runtime manager is unavailable")?
-        .insert(run_id.clone(), process);
+    {
+        let mut processes = manager.0.lock().map_err(|_| "Runtime state unavailable")?;
+        if manager.2.load(Ordering::SeqCst) != generation {
+            return Err("This launch was cancelled while Latch state changed".into());
+        }
+        processes.insert(run_id.clone(), process);
+    }
 
     if let Err(error) = send(
         &stdin,
@@ -789,6 +802,7 @@ impl Drop for RuntimeProcess {
 impl RuntimeManager {
     pub fn shutdown(&self) {
         if let Ok(mut processes) = self.0.lock() {
+            self.2.fetch_add(1, Ordering::SeqCst);
             processes.clear();
         }
     }

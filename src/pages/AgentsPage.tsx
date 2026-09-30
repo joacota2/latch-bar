@@ -35,7 +35,7 @@ function AgentRow({ agent }: { agent: CodexAgent }) {
 }
 
 export function AgentsPage() {
-  const { agents, createAgent, settings } = useLatch();
+  const { openHelp, agents, createAgent, settings } = useLatch();
   const pinned = agents.filter((agent) => agent.pinned && agent.enabled).sort((a, b) => a.order - b.order);
   return (
     <div className="page agents-page">
@@ -61,7 +61,7 @@ export function AgentsPage() {
         </div>
       </section>
 
-      <section className="privacy-note"><ShieldCheck size={19} /><div><strong>Permission-first by design</strong><p>Each agent gets only the access you choose. Selection content stays local until you run a profile.</p></div><button>Learn how it works <ArrowRight size={14} /></button></section>
+      <section className="privacy-note"><ShieldCheck size={19} /><div><strong>Permission-first by design</strong><p>Each agent gets only the access you choose. Selection content stays local until you run a profile.</p></div><button onClick={openHelp}>Learn how it works <ArrowRight size={14} /></button></section>
     </div>
   );
 }
