@@ -1,6 +1,6 @@
 [package]
 name = "latch-bar"
-version = "0.2.1"
+version = "0.3.0"
 description = "A contextual Codex surface for desktop selections"
 authors = ["Latch Bar"]
 edition = "2021"
