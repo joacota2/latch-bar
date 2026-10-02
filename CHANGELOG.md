@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/joacota2/latch-bar/compare/v0.3.1...v0.3.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* resolve functional testing failures across Studio and Context Bar ([#15](https://github.com/joacota2/latch-bar/issues/15)) ([d48b045](https://github.com/joacota2/latch-bar/commit/d48b045fcbb083d96046f17051543cfc06fde780))
+
 ## [0.3.1](https://github.com/joacota2/latch-bar/compare/v0.3.0...v0.3.1) (2026-09-30)
 
 
