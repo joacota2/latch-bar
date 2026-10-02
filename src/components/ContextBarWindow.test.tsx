@@ -5,11 +5,13 @@ import type { NativeSelection } from "../domain";
 import { DEFAULT_AGENTS_VERSION, seedAgents, seedSettings } from "../data/seed";
 import { LatchProvider } from "../store/LatchStore";
 import { ContextBarWindow } from "./ContextBarWindow";
+import * as persistence from "../services/persistence";
 
 type EventHandler = (event: { payload: unknown }) => void;
 
 const mocks = vi.hoisted(() => ({
   chooseWorkspaceFolder: vi.fn(),
+  markContextBarReady: vi.fn(async () => undefined),
   listeners: new Map<string, EventHandler>(),
   copyNativeText: vi.fn(),
   continueNativeRun: vi.fn(),
@@ -42,7 +44,7 @@ vi.mock("../services/runtime", () => ({
   hideContextBar: mocks.hideContextBar,
   interruptNativeRun: vi.fn(async () => undefined),
   isTauri: vi.fn(() => true),
-  markContextBarReady: vi.fn(async () => undefined),
+  markContextBarReady: mocks.markContextBarReady,
   openStudio: mocks.openStudio,
   replaceNativeSelection: mocks.replaceNativeSelection,
   resizeContextBar: mocks.resizeContextBar,
@@ -71,6 +73,12 @@ function emit(event: string, payload: unknown) {
   act(() => handler({ payload }));
 }
 
+async function mountContextBar() {
+  const view = render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+  await waitFor(() => expect(mocks.markContextBarReady).toHaveBeenCalledOnce());
+  return view;
+}
+
 describe("Context Bar lifecycle", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -93,12 +101,30 @@ describe("Context Bar lifecycle", () => {
     mocks.replaceNativeSelection.mockReset().mockResolvedValue({ method: "accessibility", verified: true });
   });
 
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+  it("announces readiness only after persisted state and selection listeners are ready", async () => {
+    const snapshot = persistence.browserSnapshot();
+    let resolveState!: (value: typeof snapshot) => void;
+    vi.spyOn(persistence, "readState").mockImplementationOnce(() => new Promise((resolve) => { resolveState = resolve; }));
+    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
+    await waitFor(() => expect(persistence.readState).toHaveBeenCalledOnce());
+
+    expect(mocks.listeners.has("latch-state-changed")).toBe(true);
+    expect(mocks.listeners.has("native-selection")).toBe(false);
+    expect(mocks.markContextBarReady).not.toHaveBeenCalled();
+
+    await act(async () => resolveState(snapshot));
+    await waitFor(() => expect(mocks.markContextBarReady).toHaveBeenCalledOnce());
+    expect(mocks.listeners.has("native-selection")).toBe(true);
+    expect(mocks.listeners.has("codex-event")).toBe(true);
+    emit("native-selection", selection("Selected after loading", 20));
+    expect(screen.getByRole("button", { name: "Run Improve writing" })).toBeInTheDocument();
+  });
 
   it("finishes inside the bar and accepts another selection without restarting", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
 
     emit("native-selection", selection("First selection", 20));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
@@ -129,8 +155,7 @@ describe("Context Bar lifecycle", () => {
 
   it("expands for streaming and continues with extra instructions without opening Studio", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
 
     emit("native-selection", selection("A sentence to improve", 20));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
@@ -189,8 +214,7 @@ describe("Context Bar lifecycle", () => {
 
   it("updates pinned agents live and opens the agent picker without opening Studio", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("latch-state-changed")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Selected text", 20));
 
     emit("latch-state-changed", {
@@ -221,8 +245,7 @@ describe("Context Bar lifecycle", () => {
 
   it("keeps crowded pins icon-only and exposes the remainder without widening indefinitely", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("latch-state-changed")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Selected text", 20));
 
     const crowdedAgents = Array.from({ length: 10 }, (_, index) => ({
@@ -239,7 +262,8 @@ describe("Context Bar lifecycle", () => {
       settings: seedSettings,
     });
 
-    const bar = await screen.findByRole("region", { name: "Latch Context Bar" });
+    await screen.findByRole("button", { name: "Show 3 more pinned agents" });
+    const bar = screen.getByRole("region", { name: "Latch Context Bar" });
     const compactPins = bar.querySelectorAll(".context-pinned-agents .context-action");
     expect(compactPins).toHaveLength(7);
     expect(compactPins[0]).toHaveAttribute("data-agent-name", "Pinned agent 1");
@@ -255,8 +279,7 @@ describe("Context Bar lifecycle", () => {
 
   it("disables replacement for a read-only selection", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
 
     emit("native-selection", selection("Read-only website text", 20, "none"));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
@@ -278,8 +301,7 @@ describe("Context Bar lifecycle", () => {
 
   it("enforces an agent that has replacement disabled", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("latch-state-changed")).toBe(true));
+    await mountContextBar();
 
     emit("latch-state-changed", {
       agents: seedAgents.map((agent) => agent.id === "improve-writing"
@@ -313,8 +335,7 @@ describe("Context Bar lifecycle", () => {
 
   it("replaces an editable selection when the agent allows it", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
 
     emit("native-selection", selection("Editable custom control", 20, "clipboardPaste"));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
@@ -338,8 +359,7 @@ describe("Context Bar lifecycle", () => {
   it("keeps the result open when the source editor rejects replacement", async () => {
     const user = userEvent.setup();
     mocks.replaceNativeSelection.mockRejectedValueOnce(new Error("The source editor ignored the replacement"));
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
 
     emit("native-selection", selection("Editable custom control", 20, "clipboardPaste"));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
@@ -363,8 +383,7 @@ describe("Context Bar lifecycle", () => {
   it("keeps an unverified replacement visible and prevents a second dispatch", async () => {
     mocks.replaceNativeSelection.mockResolvedValueOnce({ method: "clipboard-paste", verified: false });
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Original", 20, "clipboardPaste"));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
@@ -380,8 +399,7 @@ describe("Context Bar lifecycle", () => {
     let resolve!: (value: { runId: string; prompt: string }) => void;
     mocks.startNativeRun.mockReset().mockImplementation(() => new Promise((done) => { resolve = done; }));
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Original", 20));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
@@ -396,8 +414,7 @@ describe("Context Bar lifecycle", () => {
     let resolve!: (value: { runId: string; prompt: string }) => void;
     mocks.startNativeRun.mockReset().mockImplementation(() => new Promise((done) => { resolve = done; }));
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Original", 20));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
@@ -410,8 +427,7 @@ describe("Context Bar lifecycle", () => {
   it("does not launch a projectless run after cancelling Ask each time", async () => {
     localStorage.setItem("latch-bar-state-v1", JSON.stringify({ defaultAgentsVersion: DEFAULT_AGENTS_VERSION, agents: [{ ...seedAgents[0], workspaceMode: "ask-each-time" }], runs: [], settings: seedSettings }));
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Original", 20));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.chooseWorkspaceFolder).toHaveBeenCalled());
@@ -421,8 +437,7 @@ describe("Context Bar lifecycle", () => {
   it.each(["copy", "replace", "open-studio"] as const)("honors the configured %s output action", async (mode) => {
     localStorage.setItem("latch-bar-state-v1", JSON.stringify({ defaultAgentsVersion: DEFAULT_AGENTS_VERSION, agents: [{ ...seedAgents[0], outputPolicy: { ...seedAgents[0].outputPolicy, mode, allowReplace: true } }], runs: [], settings: seedSettings }));
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Original", 20));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
@@ -434,8 +449,7 @@ describe("Context Bar lifecycle", () => {
 
   it("never offers placeholder text as a replacement for an empty completion", async () => {
     const user = userEvent.setup();
-    render(<LatchProvider><ContextBarWindow /></LatchProvider>);
-    await waitFor(() => expect(mocks.listeners.has("native-selection")).toBe(true));
+    await mountContextBar();
     emit("native-selection", selection("Original", 20));
     await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
