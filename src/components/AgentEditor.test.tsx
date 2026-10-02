@@ -157,3 +157,5 @@ describe("Codex-discovered agent options", () => {
     });
   });
 });
+
+vi.mock("../services/persistence", async (original) => (await import("../test/browserPersistence")).browserPersistence(original));

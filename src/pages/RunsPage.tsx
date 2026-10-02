@@ -33,7 +33,8 @@ function RunRow({ run, onSelect, onOpenCodex }: { run: Run; onSelect: () => void
 export function RunsPage() {
   const { runs, notify } = useLatch();
   const [filter, setFilter] = useState<"all" | RunStatus>("all");
-  const [selected, setSelected] = useState<Run | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = runs.find((run) => run.id === selectedId) ?? null;
   const visible = useMemo(() => filter === "all" ? runs : runs.filter((run) => run.status === filter), [filter, runs]);
   const active = visible.filter((run) => run.status === "running" || run.status === "approval");
   const history = visible.filter((run) => run.status !== "running" && run.status !== "approval");
@@ -45,7 +46,7 @@ export function RunsPage() {
     void openCodexThread(run.threadId).catch(() => notify("Could not open this conversation in Codex"));
   };
 
-  const row = (run: Run) => <RunRow key={run.id} run={run} onSelect={() => setSelected(run)} onOpenCodex={() => openInCodex(run)} />;
+  const row = (run: Run) => <RunRow key={run.id} run={run} onSelect={() => setSelectedId(run.id)} onOpenCodex={() => openInCodex(run)} />;
 
   return <div className="page runs-page">
     <div className="runs-summary">
@@ -57,12 +58,12 @@ export function RunsPage() {
     <div className="filter-bar"><Filter size={15} /><span>Show</span>{(["all", "running", "approval", "completed", "failed"] as const).map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "approval" ? "Needs approval" : item[0].toUpperCase() + item.slice(1)}</button>)}</div>
     {active.length > 0 && <section className="content-section"><SectionLabel>In progress</SectionLabel><div className="runs-list">{active.map(row)}</div></section>}
     <section className="content-section"><SectionLabel>History</SectionLabel><div className="runs-list">{history.map(row)}{history.length === 0 && <div className="info-banner"><div><strong>No native runs yet</strong><p>Select text in another application and choose an agent from the Context Bar.</p></div></div>}</div></section>
-    {selected && <div className="detail-scrim" onClick={() => setSelected(null)}>
+    {selected && <div className="detail-scrim" onClick={() => setSelectedId(null)}>
       <aside className="run-detail" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
           <div><span className={`run-status ${selected.status}`}>{statusMeta[selected.status].label}</span><h2>{selected.agentName}</h2><p>{selected.sourceApplication} · {selected.startedAt}</p></div>
           {selected.threadId && <button className="drawer-codex-link" onClick={() => openInCodex(selected)}><ArrowUpRight size={14} /> Open in Codex</button>}
-          <button className="drawer-close" onClick={() => setSelected(null)}>×</button>
+          <button className="drawer-close" onClick={() => setSelectedId(null)}>×</button>
         </div>
         <div className="run-detail-body">
           <div className="detail-grid"><div><span>Model</span><strong>{selected.model}</strong></div><div><span>Sandbox</span><strong>{selected.sandbox}</strong></div><div><span>Thread</span><strong>{selected.threadId ?? "—"}</strong></div><div><span>Duration</span><strong>{selected.duration ?? "In progress"}</strong></div></div>

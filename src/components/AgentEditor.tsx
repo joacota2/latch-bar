@@ -1,7 +1,7 @@
 import { AlertTriangle, Braces, Check, ChevronDown, Copy, Eye, Pin, Play, Save, Shield, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { CodexAgent, CodexPermissionProfile, SandboxMode } from "../domain";
-import { applyAgentConfig, parseAgentConfig, serializeAgentConfig } from "../services/agentConfig";
+import { agentConfigSchema, applyAgentConfig, parseAgentConfig, serializeAgentConfig } from "../services/agentConfig";
 import { buildPrompt } from "../services/promptBuilder";
 import { copyNativeText, isTauri } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
@@ -39,18 +39,20 @@ function permissionCopy(profile: CodexPermissionProfile) {
 }
 
 export function AgentEditor() {
-  const { agents, selectedAgentId, setSelectedAgentId, updateAgent, deleteAgent, duplicateAgent, mcps, skills, workspaces, codexEnvironment, environmentStatus, refreshCodexEnvironment, notify } = useLatch();
-  const source = agents.find((agent) => agent.id === selectedAgentId);
+  const { ready, agents, selectedAgentId, setSelectedAgentId, updateAgent, deleteAgent, duplicateAgent, mcps, skills, workspaces, codexEnvironment, environmentStatus, refreshCodexEnvironment, notify } = useLatch();
+  const source = ready ? agents.find((agent) => agent.id === selectedAgentId) : undefined;
   const [draft, setDraft] = useState<CodexAgent | null>(source ?? null);
   const [tab, setTab] = useState<EditorTab>("general");
   const [promptPreview, setPromptPreview] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
   const [configJson, setConfigJson] = useState(() => source ? serializeAgentConfig(source) : "");
   const [configError, setConfigError] = useState("");
   useEffect(() => {
     setDraft(source ? { ...source, contextPolicy: { ...source.contextPolicy }, outputPolicy: { ...source.outputPolicy } } : null);
     setConfigJson(source ? serializeAgentConfig(source) : "");
-    setConfigError("");
+    setConfigError(""); setFormError("");
     setTab("general");
     setPromptPreview(false);
   }, [source?.id]);
@@ -91,8 +93,20 @@ export function AgentEditor() {
   } : current);
   const allowedApprovals = codexEnvironment?.requirements.allowedApprovalPolicies;
   const approvalAllowed = (value: CodexAgent["approvalPolicy"]) => !allowedApprovals || allowedApprovals.includes(value === "always-ask" ? "untrusted" : value === "when-needed" ? "on-request" : "never");
-  const save = () => { updateAgent(draft); setSaved(true); notify("Agent saved"); window.setTimeout(() => setSaved(false), 1400); };
-  const prepareTest = () => { updateAgent(draft); setSelectedAgentId(null); notify("Agent saved. Select text in another app to run it."); };
+  const save = async (test = false) => {
+    if (saving) return;
+    const parsed = agentConfigSchema.safeParse(draft);
+    if (!parsed.success) { setFormError(`${parsed.error.issues[0].path.join(".")}: ${parsed.error.issues[0].message}`); return; }
+    setFormError(""); setSaving(true);
+    try {
+      if (!await updateAgent(applyAgentConfig(draft, parsed.data))) return;
+      setSaved(true);
+      if (test) setSelectedAgentId(null);
+      notify(test ? "Agent saved. Select text in another app to run it." : "Agent saved");
+      window.setTimeout(() => setSaved(false), 1400);
+    } finally { setSaving(false); }
+  };
+  const prepareTest = () => void save(true);
   const toggleMcp = (id: string) => patch("enabledMcpServers", draft.enabledMcpServers.includes(id) ? draft.enabledMcpServers.filter((item) => item !== id) : [...draft.enabledMcpServers, id]);
   const toggleSkill = (id: string) => patch("enabledSkills", draft.enabledSkills.includes(id) ? draft.enabledSkills.filter((item) => item !== id) : [...draft.enabledSkills, id]);
   const selectTab = (nextTab: EditorTab) => {
@@ -109,19 +123,21 @@ export function AgentEditor() {
     else await navigator.clipboard.writeText(json);
     notify("Agent JSON copied");
   };
-  const importConfig = () => {
+  const importConfig = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
       const next = applyAgentConfig(draft, parseAgentConfig(configJson));
+      if (!await updateAgent(next)) return;
       setDraft(next);
       setConfigJson(serializeAgentConfig(next));
       setConfigError("");
-      updateAgent(next);
       setSaved(true);
       notify("Agent configuration imported and saved");
       window.setTimeout(() => setSaved(false), 1400);
     } catch (caught) {
       setConfigError(caught instanceof Error ? caught.message : String(caught));
-    }
+    } finally { setSaving(false); }
   };
 
   return <div className="drawer-scrim" onMouseDown={(event) => { if (event.currentTarget === event.target) setSelectedAgentId(null); }}>
@@ -132,6 +148,7 @@ export function AgentEditor() {
       </header>
       <nav className="editor-tabs">{tabLabels.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => selectTab(item.id)}>{item.label}{item.id === "integrations" && <span>{draft.enabledMcpServers.length + draft.enabledSkills.length}</span>}</button>)}</nav>
       <div className="editor-body">
+        {formError && <p role="alert" className="agent-config-error">{formError}</p>}
         {tab === "general" && <>
           <section className="editor-section"><div className="field-row two"><label><span>Name</span><input value={draft.name} onChange={(event) => patch("name", event.target.value)} /></label><label><span>Icon</span><div className="icon-input"><input maxLength={2} value={draft.icon} onChange={(event) => patch("icon", event.target.value)} /><ChevronDown size={14} /></div></label></div><label className="field"><span>Description</span><input value={draft.description} onChange={(event) => patch("description", event.target.value)} /></label><div className="inline-settings"><div><strong>Enabled</strong><p>Available from Latch and the Context Bar.</p></div><Toggle checked={draft.enabled} onChange={(value) => patch("enabled", value)} label="Enable agent" /></div><div className="inline-settings"><div><strong>Pin to Context Bar</strong><p>Keep this profile one click away from selected text.</p></div><Toggle checked={draft.pinned} onChange={(value) => patch("pinned", value)} label="Pin agent" /></div></section>
           <section className="editor-section"><div className="editor-section-title"><div><span className="section-icon"><Sparkles size={15} /></span><div><h3>Instructions</h3><p>Define exactly how Codex should handle selected content.</p></div></div><button onClick={() => setPromptPreview((open) => !open)}><Eye size={13} /> Preview final prompt</button></div><textarea className="prompt-editor" value={draft.promptTemplate} onChange={(event) => patch("promptTemplate", event.target.value)} /><div className="variable-chips"><span>Insert variable</span>{["selection", "application", "workspace", "timestamp"].map((variable) => <button key={variable} onClick={() => patch("promptTemplate", `${draft.promptTemplate}\n{{${variable}}}`)}>{`{{${variable}}}`}</button>)}</div>{promptPreview && <label className="field"><span>Final prompt preview (sample context)</span><textarea className="agent-json-editor" aria-label="Final prompt preview" readOnly value={buildPrompt(draft, { selection: "Sample selected text", application: "Example application", workspace: draft.fixedWorkspacePath })} /></label>}<p className="field-hint">If <code>{"{{selection}}"}</code> is omitted, Latch safely appends selected content inside a delimited data block.</p></section>
@@ -176,11 +193,11 @@ export function AgentEditor() {
           <div className="agent-config-actions">
             <p>Importing keeps this agent's local ID and timestamps, while replacing all shareable settings.</p>
             <button type="button" className="secondary-button" onClick={() => setConfigJson(serializeAgentConfig(draft))}>Reset</button>
-            <button type="button" className="primary-button" onClick={importConfig}>Import &amp; save</button>
+            <button type="button" className="primary-button" disabled={saving} onClick={() => void importConfig()}>Import &amp; save</button>
           </div>
         </section>}
       </div>
-      <footer className="editor-footer"><button className="danger-button" onClick={() => { if (window.confirm(`Delete ${draft.name}?`)) deleteAgent(draft.id); }}><Trash2 size={15} /> Delete</button><div><button className="secondary-button" onClick={prepareTest}><Play size={15} /> Save & test with selection</button><button className="primary-button" onClick={save}>{saved ? <Check size={15} /> : <Save size={15} />}{saved ? "Saved" : "Save changes"}</button></div></footer>
+      <footer className="editor-footer"><button className="danger-button" onClick={() => { if (window.confirm(`Delete ${draft.name}?`)) deleteAgent(draft.id); }}><Trash2 size={15} /> Delete</button><div><button className="secondary-button" disabled={saving} onClick={prepareTest}><Play size={15} /> Save & test with selection</button><button className="primary-button" disabled={saving} onClick={() => void save()}>{saved ? <Check size={15} /> : <Save size={15} />}{saved ? "Saved" : "Save changes"}</button></div></footer>
     </aside>
   </div>;
 }

@@ -1,6 +1,8 @@
 mod activity;
 mod app_server;
+mod persistence;
 mod platform;
+mod private_release;
 mod runtime;
 mod scanner;
 mod updates;
@@ -21,6 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(persistence::Persistence::default())
         .manage(platform::PlatformState::default())
         .manage(runtime::RuntimeManager::default())
         .manage(updates::UpdateManager::default())
@@ -45,6 +48,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             studio_shortcut_registered,
+            persistence::read_latch_state,
+            persistence::write_latch_state,
             updates::update_state,
             updates::update_editor_state,
             updates::check_for_updates,

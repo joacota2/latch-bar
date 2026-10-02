@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::Update;
 
 const EVENT: &str = "latch-update-state";
 const INITIAL_DELAY: Duration = Duration::from_secs(30);
@@ -155,18 +155,9 @@ async fn check(app: &AppHandle) -> Result<UpdateState, String> {
         publish(app, &mut inner.state);
     }
     let result = async {
-        let updater = app
-            .updater_builder()
-            .timeout(Duration::from_secs(20))
-            .version_comparator(|current, release| {
-                release.version.pre.is_empty() && release.version > current
-            })
-            .build()
-            .map_err(|error| error.to_string())?;
-        tokio::time::timeout(Duration::from_secs(25), updater.check())
+        tokio::time::timeout(Duration::from_secs(65), crate::private_release::check(app))
             .await
             .map_err(|_| "The update check timed out. Please try again.".to_string())?
-            .map_err(|error| error.to_string())
     }
     .await;
     manager.change(app, |inner| {

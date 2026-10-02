@@ -29,13 +29,14 @@ export function App() {
 
 function Studio() {
   const { installing } = useUpdates();
-  const { activeNav, setActiveNav, selectedAgentId, toasts, settings, notify } = useLatch();
+  const { ready, persistenceError, reloadState, activeNav, setActiveNav, selectedAgentId, toasts, settings, notify } = useLatch();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("latch-sidebar-collapsed") === "true");
   const permissionChecked = useRef(false);
 
   useEffect(() => {
+    if (!ready) return;
     void startSelectionMonitor(settings).catch(() => undefined);
-  }, [settings]);
+  }, [ready, settings]);
 
   useEffect(() => {
     if (!isTauri() || !settings.contextBarEnabled || permissionChecked.current) return;
@@ -62,7 +63,9 @@ function Studio() {
 
   return (
     <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
-      <div className="studio-content" inert={installing}>
+      {persistenceError && <div role="alert" className="info-banner persistence-banner">{persistenceError}<button onClick={() => void reloadState()}>Retry</button></div>}
+      {!ready && !persistenceError && <p className="info-banner persistence-banner" role="status">Loading local data…</p>}
+      <div className="studio-content" inert={installing || !ready}>
         <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
         <div className="app-main">
           <Topbar />

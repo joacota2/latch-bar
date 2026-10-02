@@ -96,7 +96,7 @@ Before making the repository public:
 
 The installed macOS release checks GitHub Releases 30 seconds after launch and every six hours. Settings → General → Updates also supports an immediate check. Only **Update and restart** downloads and installs a release. Active agent turns, startup, pending approvals, and an open profile editor block installation; installation blocks new turns until it finishes or fails. Development builds and browser previews do not check for updates.
 
-The stable endpoint is `https://github.com/joacota2/latch-bar/releases/latest/download/latest.json`. The repository must be public for anonymous downloads. Private-repository 404 responses are reported as failed checks, not as “up to date”. Never embed a GitHub token in the app. Existing users must manually install the first version containing this updater.
+The stable endpoint is `https://github.com/joacota2/latch-bar/releases/latest/download/latest.json`. For this private repository, the native updater resolves the latest published release and its assets through the GitHub API using the user’s existing GitHub CLI login (`gh auth login --hostname github.com`). The account must have read access to the repository. The manifest and archive use authenticated asset API URLs; credentials remain in native memory, and downloaded archives still require the pinned updater signature. Missing CLI/login/access is reported as an actionable error. Never embed a GitHub token in the app. Existing users of the unauthenticated updater must manually install the first version containing this fix. Explicit endpoint overrides (including the test procedure below) continue to use the standard updater without GitHub credentials.
 
 ### Signing key setup and backup
 
