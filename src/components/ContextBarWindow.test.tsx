@@ -148,6 +148,7 @@ describe("Context Bar lifecycle", () => {
     await waitFor(() => expect(mocks.setOverlayPinned).toHaveBeenLastCalledWith(true));
 
     emit("native-selection", selection("Second selection", 260));
+    expect(screen.getByRole("button", { name: "Run Improve writing" })).not.toHaveClass("is-hovered");
     await waitFor(() => expect(mocks.stopNativeRun).toHaveBeenCalledWith("run-1"));
     await user.click(await screen.findByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(2));
@@ -241,6 +242,34 @@ describe("Context Bar lifecycle", () => {
     expect(translateButton.closest(".context-agent-option")).toHaveClass("is-launching");
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(1));
     expect(mocks.openStudio).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("clears the previous agent hover on a new selection (closed: %s)", async (closeFirst) => {
+    const user = userEvent.setup();
+    await mountContextBar();
+    emit("native-selection", selection("First selection", 20));
+    const oldButton = screen.getByRole("button", { name: "Run Summarize" });
+    await user.hover(oldButton);
+    expect(oldButton).toHaveClass("is-hovered");
+    if (closeFirst) await user.click(screen.getByRole("button", { name: /^Close$/ }));
+    emit("native-selection", selection("Another selection", 260));
+    const nextButton = screen.getByRole("button", { name: "Run Summarize" });
+    expect(nextButton).not.toHaveClass("is-hovered");
+    expect(nextButton).not.toHaveClass("is-native-hovered");
+    expect(nextButton).not.toBe(oldButton);
+    await user.hover(nextButton);
+    expect(nextButton).toHaveClass("is-hovered");
+  });
+
+  it("clears DOM hover when the native pointer leaves without a pointerleave event", async () => {
+    const user = userEvent.setup();
+    await mountContextBar();
+    emit("native-selection", selection("Selected text", 20));
+    const button = screen.getByRole("button", { name: "Run Summarize" });
+    await user.hover(button);
+    expect(button).toHaveClass("is-hovered");
+    emit("context-pointer-position", { inside: false, x: 0, y: 0 });
+    expect(button).not.toHaveClass("is-hovered");
   });
 
   it("keeps crowded pins icon-only and exposes the remainder without widening indefinitely", async () => {

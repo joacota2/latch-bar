@@ -1,4 +1,4 @@
-import { Bot, Braces, Cable, ChevronsLeft, ChevronsRight, Clock3, FolderKanban, Settings2 } from "lucide-react";
+import { Bot, Braces, Cable, PanelLeftClose, PanelLeftOpen, Clock3, FolderKanban, Settings2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { NavKey } from "../domain";
 import { getRuntimeStatus, type RuntimeStatus } from "../services/runtime";
@@ -24,10 +24,15 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   const connected = runtime?.available === true;
   return (
     <aside className="sidebar" aria-label="Studio sidebar">
-      <button className="brand" onClick={() => setActiveNav("agents")} aria-label="Latch home" title={collapsed ? "Latch Bar" : undefined}>
-        <img className="brand-icon" src="/latch-icon.svg" alt="" />
-        <span className="brand-word"><b>latch</b><small>bar</small></span>
-      </button>
+      <div className="sidebar-header">
+        <button className="brand" onClick={() => setActiveNav("agents")} aria-label="Latch home" title={collapsed ? "Latch Bar" : undefined}>
+          <img className="brand-icon" src="/latch-icon.svg" alt="" />
+          <span className="brand-word"><b>latch</b><small>bar</small></span>
+        </button>
+        <button className="collapse-button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </button>
+      </div>
       <nav className="primary-nav" aria-label="Main navigation">
         {navItems.map(({ key, label, icon: Icon }) => (
           <button key={key} aria-label={label} title={collapsed ? label : undefined} className={activeNav === key ? "nav-item active" : "nav-item"} onClick={() => setActiveNav(key)}>
@@ -44,9 +49,6 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         </div>
         <button aria-label="Settings" title={collapsed ? "Settings" : undefined} className={activeNav === "settings" ? "nav-item active" : "nav-item"} onClick={() => setActiveNav("settings")}>
           <Settings2 size={18} /><span className="nav-label">Settings</span>
-        </button>
-        <button className="collapse-button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-          {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
         </button>
       </div>
     </aside>

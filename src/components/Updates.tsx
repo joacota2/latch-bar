@@ -20,19 +20,23 @@ export function UpdatesPanel() {
     <div className="setting-row">
       <div><strong>Latch Bar{state.currentVersion && ` ${state.currentVersion}`}</strong>
         <p>{!state.enabled ? "Updates are available in the installed macOS release app." : "Checks automatically. Downloads and installs only when you choose."}</p>
+        {(state.phase === "upToDate" || state.lastCheckedAt) && <div className="update-status">
+          {state.phase === "upToDate" && <span role="status">You’re up to date.</span>}
+          {state.lastCheckedAt && <span className="update-last-checked">Last checked: {new Date(state.lastCheckedAt).toLocaleString()}</span>}
+        </div>}
       </div>
       <button className="secondary-button" disabled={!state.enabled || busy} onClick={() => void check()}>{state.phase === "checking" ? "Checking…" : "Check for updates"}</button>
     </div>
-    {state.lastCheckedAt && <p className="field-hint">Last checked: {new Date(state.lastCheckedAt).toLocaleString()}</p>}
-    {state.phase === "upToDate" && <p role="status">You’re up to date.</p>}
-    {state.availableVersion && <div className="update-available">
-      <strong>Version {state.availableVersion} is available</strong>
-      {state.notes && <pre className="update-notes">{state.notes}</pre>}
-      <button className="primary-button" disabled={busy || Boolean(selectedAgentId)} onClick={() => void install()}>Update and restart</button>
-      {selectedAgentId && <p>Save your changes and close the agent editor before updating.</p>}
+    {(state.availableVersion || installingUpdate(state.phase) || error || state.error) && <div className="update-details">
+      {state.availableVersion && <div className="update-available">
+        <strong>Version {state.availableVersion} is available</strong>
+        {state.notes && <pre className="update-notes">{state.notes}</pre>}
+        <button className="primary-button" disabled={busy || Boolean(selectedAgentId)} onClick={() => void install()}>Update and restart</button>
+        {selectedAgentId && <p>Save your changes and close the agent editor before updating.</p>}
+      </div>}
+      {installingUpdate(state.phase) && <UpdateProgress state={state} />}
+      {(error || state.error) && <p className="update-error" role="alert">{error || state.error}</p>}
     </div>}
-    {installingUpdate(state.phase) && <UpdateProgress state={state} />}
-    {(error || state.error) && <p className="update-error" role="alert">{error || state.error}</p>}
   </section>;
 }
 

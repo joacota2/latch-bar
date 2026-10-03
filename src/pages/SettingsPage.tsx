@@ -1,4 +1,4 @@
-import { Check, CircleAlert, ExternalLink, FileCode2, HardDrive, KeyRound, MonitorUp, RotateCcw, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Check, CircleAlert, ExternalLink, FileCode2, MonitorUp, ShieldCheck } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { Toggle } from "../components/ui";
@@ -9,7 +9,7 @@ import { UpdatesPanel } from "../components/Updates";
 
 export function SettingsPage() {
   const { clearData, settings, updateSettings, codexEnvironment, environmentStatus, environmentError, refreshCodexEnvironment, notify } = useLatch();
-  const [tab, setTab] = useState<"general" | "selection" | "codex" | "privacy" | "advanced">("general");
+  const [tab, setTab] = useState<"general" | "selection" | "codex" | "privacy">("general");
   const { viewRequest } = useUpdates();
   useEffect(() => { if (viewRequest) setTab("general"); }, [viewRequest]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
@@ -74,14 +74,9 @@ export function SettingsPage() {
         ? "Checking"
         : "Not authenticated";
   return <div className="page settings-page">
-    <div className="settings-tabs">{(["general", "selection", "codex", "privacy", "advanced"] as const).map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>
+    <div className="settings-tabs">{(["general", "selection", "codex", "privacy"] as const).map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>
     {tab === "general" && <div className="settings-panel">
       <UpdatesPanel />
-      <div className="setting-group">
-        <h3>Startup</h3>
-        {row("Launch at login", "Not available in this version.", false, () => undefined, true)}
-        {row("Show menu bar icon", "Not available in this version.", false, () => undefined, true)}
-      </div>
       <div className="setting-group">
         <h3>Context Bar</h3>
         {row("Enable Context Bar", "Show favorite profiles after a text selection.", settings.contextBarEnabled, (value) => void setContextBarEnabled(value))}
@@ -105,6 +100,5 @@ export function SettingsPage() {
       </div>
     </div>}
     {tab === "privacy" && <div className="settings-panel"><div className="privacy-hero"><ShieldCheck size={24} /><div><h3>Your context remains under your control</h3><p>Latch stores profile settings locally and sends selected content only after you choose an agent.</p></div></div><div className="setting-group"><h3>History</h3>{row("Store run history", "Keep up to 200 runs on this device. Turning this off clears local history; Codex manages its own history.", settings.storeHistory, (value) => updateSettings({ storeHistory: value }))}{row("Store original selected text", "Off by default. Omit the original selection from local run history.", settings.storeSelectedText, (value) => updateSettings({ storeSelectedText: value }))}{row("Redact window titles", "Exclude document and browser tab names from context sent to Codex.", settings.redactWindowTitles, (value) => updateSettings({ redactWindowTitles: value }))}</div><div className="danger-zone"><CircleAlert size={17} /><div><strong>Clear local data</strong><p>Remove agents, run history, and preferences from this device.</p></div><button onClick={() => void clearData()}>Clear data</button></div></div>}
-    {tab === "advanced" && <div className="settings-panel"><div className="setting-group"><h3>Runtime</h3><div className="setting-row value-row"><div><strong>App-server executable</strong><p>The highest-version Codex installation resolved by Latch.</p></div><code>{codexEnvironment?.userAgent || "codex app-server"}</code></div><div className="setting-row value-row"><div><strong>Provider capabilities</strong><p>Reported by the active model provider.</p></div><code>{codexEnvironment ? [codexEnvironment.providerCapabilities.webSearch && "web", codexEnvironment.providerCapabilities.imageGeneration && "images", codexEnvironment.providerCapabilities.namespaceTools && "namespaced tools"].filter(Boolean).join(", ") || "none reported" : "not loaded"}</code></div><div className="setting-row value-row"><div><strong>Runtime logs</strong><p>Inspect JSON-RPC events and helper diagnostics.</p></div><button disabled title="Not available in this version">Open logs <MonitorUp size={12} /></button></div></div><div className="advanced-cards"><button disabled title="Not available in this version"><HardDrive /><strong>Export diagnostics</strong><span>Bundle logs without credentials</span></button><button disabled title="Not available in this version"><KeyRound /><strong>Reset integration</strong><span>Reconnect to Codex</span></button><button onClick={() => void refreshCodexEnvironment()}><RotateCcw /><strong>Reload environment</strong><span>Refresh all app-server discovery</span></button><button onClick={() => notify(`${codexEnvironment?.experimentalFeatures.filter((feature) => feature.enabled).length ?? 0} experimental Codex features enabled`)}><SlidersHorizontal /><strong>Capabilities</strong><span>{codexEnvironment?.experimentalFeatures.length ?? 0} feature flags reported</span></button></div></div>}
   </div>;
 }

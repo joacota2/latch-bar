@@ -75,6 +75,10 @@ export function ContextBarWindow() {
   const [instruction, setInstruction] = useState("");
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
+  const clearAgentHover = useCallback(() => {
+    setHoveredAgentId(null);
+    document.querySelectorAll(".is-native-hovered").forEach((element) => element.classList.remove("is-native-hovered"));
+  }, []);
   const [launchingAgentId, setLaunchingAgentId] = useState<string | null>(null);
   const outputActionRef = useRef<(agent: CodexAgent, source: NativeSelection, text: string) => Promise<void>>(async () => undefined);
   const epoch = useRef(0);
@@ -302,6 +306,7 @@ export function ContextBarWindow() {
     let disposed = false;
     const unlistenSelection = listen<NativeSelection>("native-selection", ({ payload }) => {
       if (!captureEnabled.current || turnActive.current || starting.current) return;
+      clearAgentHover();
       const previousRunId = runId.current;
       if (previousRunId) void stopNativeRun(previousRunId).catch(() => undefined);
       runId.current = null;
@@ -314,6 +319,8 @@ export function ContextBarWindow() {
       setReplacementStatus("");
       setSelection(payload);
       setAgentId(null);
+      setContextAgentId(null);
+      setContextBarState("idle");
       setState("idle");
       setShowAll(false);
       setInstructionOpen(false);
@@ -330,10 +337,11 @@ export function ContextBarWindow() {
       if (payload.runId === runId.current) handleMessageRef.current(payload.message);
     });
     const unlistenPointer = listen<NativePointer>("context-pointer-position", ({ payload }) => {
-      document.querySelectorAll(".is-native-hovered").forEach((element) => element.classList.remove("is-native-hovered"));
+      clearAgentHover();
       if (!payload.inside) return;
       const element = document.elementFromPoint?.(payload.x, payload.y);
       const button = element?.closest("button");
+      setHoveredAgentId(button?.closest<HTMLElement>("[data-agent-id]")?.dataset.agentId ?? null);
       button?.classList.add("is-native-hovered");
       button?.closest(".context-agent-option")?.classList.add("is-native-hovered");
     });
@@ -592,6 +600,7 @@ export function ContextBarWindow() {
   };
 
   const close = async () => {
+    clearAgentHover();
     epoch.current += 1;
     const id = runId.current;
     const wasActive = turnActive.current || starting.current;
@@ -677,6 +686,7 @@ export function ContextBarWindow() {
     const className = `${picker ? "context-agent-option" : "context-action"}${active ? " is-hovered" : ""}${launching ? " is-launching" : ""}`;
     if (picker) return <div
       className={className}
+      data-agent-id={item.id}
       onPointerEnter={() => setHoveredAgentId(item.id)}
       onPointerLeave={() => setHoveredAgentId((current) => current === item.id ? null : current)}
     >
@@ -691,6 +701,7 @@ export function ContextBarWindow() {
     return <button
       type="button"
       className={className}
+      data-agent-id={item.id}
       data-agent-name={item.name}
       onPointerEnter={() => setHoveredAgentId(item.id)}
       onPointerLeave={() => setHoveredAgentId((current) => current === item.id ? null : current)}
@@ -716,7 +727,7 @@ export function ContextBarWindow() {
 
   return <div className={`context-wrap context-native state-${state}${showAll ? " picker-open" : ""}`}>
     <div className="context-bar" role="region" aria-label="Latch Context Bar">
-      <div className="context-state" key={`${state}-${showAll ? "picker" : "bar"}`}>
+      <div className="context-state" key={`${selection.selectionId}-${state}-${showAll ? "picker" : "bar"}`}>
         {state === "idle" && <div className="context-idle-view">
           <div className="context-idle-header">
             <div className="context-brand" title={`Selected in ${selection.application}`}><span /></div>
