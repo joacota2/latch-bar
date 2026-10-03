@@ -1,7 +1,7 @@
 # Latch Bar
 
 <p align="center">
-  <img src="docs/media/latch-bar-hero.png" alt="Latch Bar — Your Codex, everywhere" width="100%">
+  <img src="docs/media/latch-bar-hero.png" alt="Latch Bar — Your agents, everywhere" width="100%">
 </p>
 
 <p align="center">
