@@ -4,6 +4,8 @@
   <img src="docs/media/latch-bar-hero.png" alt="Latch Bar — Your agents, everywhere" width="100%">
 </p>
 
+https://github.com/user-attachments/assets/8d326518-b544-4701-b11d-904afe39e61f
+
 <p align="center">
   <strong>Bring the right Codex agent to any text selection on your Mac.</strong><br>
   Select context, choose a permission-scoped agent, and inspect or apply the streamed result without breaking your flow.
