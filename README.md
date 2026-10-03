@@ -57,6 +57,37 @@ Three planned areas of focus, with no committed dates or delivery order:
 - **Better text capture and replacement** — improve compatibility across apps and editors, preserve the intended selection, and make capture failures and unverified edits easier to understand.
 - **Windows support** — bring Studio and the Context Bar to Windows, including native selection capture, safe replacement, and installation and updates.
 
+## Architecture
+
+```text
+React Studio                 Native Context Bar window
+      │                                │
+      └──────────── Tauri commands ────┘
+                       │
+                       ├── PlatformAdapter
+                       │      ├── macOS AXUIElement (implemented)
+                       │      └── Windows UI Automation (next)
+                       ├── Codex app-server discovery client
+                       │      ├── model / config / account
+                       │      ├── MCP / Skill / permissions
+                       │      └── capabilities / threads
+                       └── Codex app-server manager
+                              ├── thread/start
+                              ├── turn/start / interrupt
+                              ├── streamed notifications
+                              └── approval responses
+```
+
+The runtime protocol follows the current [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server.md). Codex is the source of truth for runtime catalogs and effective settings; Latch keeps only its own agent choices and product preferences. MCP credentials remain owned by Codex, and Skills remain in Codex-discovered user, repository, system, or administrator locations. Named CLI profiles are discovered from the active Codex home and legacy config metadata because app-server does not expose a profile-list method.
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, architecture, and validation. Maintainers can find signing and publishing instructions in the [release guide](docs/RELEASING.md). Shipped changes are recorded in the [changelog](CHANGELOG.md).
+
+## License
+
+Copyright 2026 Joaquin Gomez and contributors.
+
+Latch Bar is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) and [third-party licenses and notices](THIRD_PARTY_NOTICES.txt) for attribution. Third-party dependencies and assets retain their respective licenses and notices; the app includes the complete sources of its MPL components in `Contents/Resources/third-party/sources`.
+
+See the [attribution maintenance guide](docs/THIRD_PARTY.md), [code and asset provenance](docs/PROVENANCE.md), and [brand policy for forks](docs/BRAND.md).

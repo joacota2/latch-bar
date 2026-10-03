@@ -4,3 +4,12 @@
 /scripts/check-macos-release-signing.sh @joacota2
 /scripts/updater-manifest*.mjs @joacota2
 /src-tauri/tauri.conf.json @joacota2
+/LICENSE @joacota2
+/NOTICE @joacota2
+/THIRD_PARTY_NOTICES.txt @joacota2
+/third-party/ @joacota2
+/scripts/third-party* @joacota2
+/scripts/third_party_test.py @joacota2
+/docs/BRAND.md @joacota2
+/docs/PROVENANCE.md @joacota2
+/docs/THIRD_PARTY.md @joacota2

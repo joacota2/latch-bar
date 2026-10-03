@@ -1,8 +1,16 @@
 # Contributing
 
+## License
+
+Unless you explicitly state otherwise, contributions intentionally submitted for inclusion in Latch Bar are licensed under the [Apache License, Version 2.0](LICENSE), as described in Section 5 of that license. You retain copyright in your contributions.
+
+Preserve applicable third-party license and attribution notices when adding or updating dependencies, code, or assets.
+
+Only submit material you have the right to contribute. Identify the source and license of copied code or assets. After dependency changes, run `npm run licenses:generate` and `npm run licenses:check`, and commit the reviewed notices, manifest, and source archives. Asset changes also require a provenance review and updated asset hashes; see [the attribution guide](docs/THIRD_PARTY.md). Fork distributions should follow the [brand policy](docs/BRAND.md).
+
 ## Local development
 
-Use Node.js 22.12+ (Node 24 is also supported), a Rust toolchain, and an installed, signed-in Codex runtime for agent execution. Native selection capture and replacement currently support macOS only.
+Use Node.js 22.12+ (Node 24 is also supported), a Rust toolchain, and an installed, signed-in Codex runtime for agent execution. Native selection capture and replacement currently support macOS only. Attribution tooling and its tests require Python 3.11 or newer.
 
 ```bash
 npm ci
@@ -51,6 +59,7 @@ Run the checks used by CI:
 npm test
 npm run build
 npm run check:version
+npm run licenses:check
 cargo check --manifest-path src-tauri/Cargo.toml --locked
 cargo test --manifest-path src-tauri/Cargo.toml --locked
 ```

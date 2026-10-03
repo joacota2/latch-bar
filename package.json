@@ -1,14 +1,18 @@
 {
   "name": "latch-bar",
+  "license": "Apache-2.0",
   "private": true,
   "version": "0.3.4",
   "type": "module",
   "scripts": {
     "check:version": "node scripts/check-version.mjs",
+    "licenses:generate": "python3 scripts/third-party.py generate",
+    "licenses:check": "python3 scripts/third-party.py check",
+    "licenses:bundle": "python3 scripts/third-party.py bundle",
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && vite build",
     "preview": "vite preview",
-    "test": "vitest run && node --test scripts/*.test.mjs",
+    "test": "vitest run && node --test scripts/*.test.mjs && python3 -m unittest discover -s scripts -p '*_test.py'",
     "test:watch": "vitest",
     "tauri": "tauri"
   },

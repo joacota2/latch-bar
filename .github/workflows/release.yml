@@ -88,6 +88,7 @@ jobs:
       - name: Verify release source
         run: |
           npm run check:version
+          npm run licenses:check
           npm test
           npm run build
           cargo check --manifest-path src-tauri/Cargo.toml --locked
@@ -152,6 +153,7 @@ jobs:
           test -n "$TAURI_SIGNING_PRIVATE_KEY"
           APP_DIR="src-tauri/target/universal-apple-darwin/release/bundle/macos"
           APP_PATH="$APP_DIR/Latch Bar.app"
+          npm run licenses:bundle -- "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           spctl --assess --type execute --verbose=2 "$APP_PATH"
@@ -161,6 +163,7 @@ jobs:
           COPYFILE_DISABLE=1 tar -czf "$UPDATE_PATH" -C "$APP_DIR" 'Latch Bar.app'
           mkdir -p "$RUNNER_TEMP/updater-extraction-check"
           tar -xzf "$UPDATE_PATH" -C "$RUNNER_TEMP/updater-extraction-check"
+          npm run licenses:bundle -- "$RUNNER_TEMP/updater-extraction-check/Latch Bar.app"
           codesign --verify --deep --strict "$RUNNER_TEMP/updater-extraction-check/Latch Bar.app"
           xcrun stapler validate "$RUNNER_TEMP/updater-extraction-check/Latch Bar.app"
           npm run tauri signer sign -- "$UPDATE_PATH"
@@ -190,6 +193,14 @@ jobs:
           xcrun stapler staple "$DMG_PATH"
           xcrun stapler validate "$DMG_PATH"
           spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
+          MOUNT_PATH="$RUNNER_TEMP/latch-dmg-license-check"
+          mkdir -p "$MOUNT_PATH"
+          hdiutil attach "$DMG_PATH" -readonly -nobrowse -mountpoint "$MOUNT_PATH"
+          trap 'hdiutil detach "$MOUNT_PATH" || true' EXIT
+          npm run licenses:bundle -- "$MOUNT_PATH/Latch Bar.app"
+          codesign --verify --deep --strict "$MOUNT_PATH/Latch Bar.app"
+          hdiutil detach "$MOUNT_PATH"
+          trap - EXIT
           FINAL_DMG_PATH="$RUNNER_TEMP/Latch-Bar.dmg"
           cp "$DMG_PATH" "$FINAL_DMG_PATH"
           gh release upload "$RELEASE_TAG" "$FINAL_DMG_PATH" --clobber

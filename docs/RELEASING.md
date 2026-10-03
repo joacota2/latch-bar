@@ -113,6 +113,10 @@ For a new distribution only, generate keys using `npm run tauri signer generate 
 
 ### Release artifacts and validation
 
+Before building, `npm run licenses:check` verifies current dependency notices, source archive checksums, and the reviewed asset inventory. Dependency or asset changes must follow [the attribution guide](THIRD_PARTY.md) before release.
+
+The workflow also runs `npm run licenses:bundle` against the signed application, the app extracted from the updater archive, and the app mounted read-only from the final stapled DMG. It compares `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.txt`, and every file in `third-party/` byte-for-byte, including the complete MPL source archives. A missing or altered resource prevents publication. Local unsigned bundle checks validate resource packaging; only the release workflow verifies the actual signed and notarized artifacts.
+
 The workflow builds both the DMG and application bundle. It verifies the application's code signature, stapled notarization ticket, version, and both executable architectures. After all bundle mutations, it creates `Latch-Bar.app.tar.gz` and signs that exact archive. `scripts/updater-manifest.mjs` verifies the signature against the configured public key and creates `latest.json` for both `darwin-aarch64` and `darwin-x86_64`. Both entries use the same universal archive and version-specific URL.
 
 The archive, `.sig`, and manifest are uploaded to the draft release and downloaded again to verify byte-for-byte correspondence. The release remains a draft if any check fails. Final DMG notarization and checksum verification still run before publication. Published versions remain immutable; ship a new higher version for a corrective release. Stable manifests reject prereleases.
