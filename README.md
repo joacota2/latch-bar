@@ -1,9 +1,5 @@
 # Latch Bar
 
-<p align="center">
-  <img src="docs/media/latch-bar-hero.png" alt="Latch Bar — Your agents, everywhere" width="100%">
-</p>
-
 https://github.com/user-attachments/assets/8d326518-b544-4701-b11d-904afe39e61f
 
 <p align="center">
