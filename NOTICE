@@ -1,0 +1,9 @@
+Latch Bar
+Copyright 2026 Joaquin Gomez and contributors
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full terms.
+
+Third-party dependencies and assets retain their respective licenses and notices.
+See THIRD_PARTY_NOTICES.txt for their full license texts and attributions.
+MPL-2.0 component sources are included in third-party/sources/; extraction
+instructions and exact upstream source URLs are in THIRD_PARTY_NOTICES.txt.

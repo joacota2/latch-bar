@@ -140,3 +140,11 @@ The [implementation audit](docs/IMPLEMENTATION_AUDIT.md) records the selection, 
 Desktop data is migrated from the legacy webview storage to `latch-state.json` in Tauri's application data directory. Studio and the Context Bar share atomic, revision-checked writes. Clear data resets both windows, stops active runtimes, and rejects pending writes from the old session. Runs interrupted by an app restart appear as cancelled. Browser preview saves require Web Locks support.
 
 Local history retains at most 200 runs. Disabling it clears Latch's local history; Codex manages its own thread history independently.
+
+## License
+
+Copyright 2026 Joaquin Gomez and contributors.
+
+Latch Bar is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) and [third-party licenses and notices](THIRD_PARTY_NOTICES.txt) for attribution. Third-party dependencies and assets retain their respective licenses and notices; the app includes the complete sources of its MPL components in `Contents/Resources/third-party/sources`.
+
+See the [attribution maintenance guide](docs/THIRD_PARTY.md), [code and asset provenance](docs/PROVENANCE.md), and [brand policy for forks](docs/BRAND.md).

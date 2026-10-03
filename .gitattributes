@@ -1,0 +1,5 @@
+# Preserve upstream legal text and source archives byte-for-byte, including CRLF
+# and whitespace that is present in the original notices.
+THIRD_PARTY_NOTICES.txt -text -whitespace
+third-party/supplemental/*.txt -text -whitespace
+third-party/sources/*.crate binary
