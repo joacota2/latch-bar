@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/joacota2/latch-bar/compare/v0.3.3...v0.3.4) (2026-10-03)
+
+
+### Bug Fixes
+
+* update app and README banners to your agents everywhere ([#19](https://github.com/joacota2/latch-bar/issues/19)) ([cfbbae9](https://github.com/joacota2/latch-bar/commit/cfbbae922bfade7c7da6addf071a7f434941f98c))
+
 ## [0.3.3](https://github.com/joacota2/latch-bar/compare/v0.3.2...v0.3.3) (2026-10-03)
 
 
