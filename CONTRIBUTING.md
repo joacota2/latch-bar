@@ -1,5 +1,13 @@
 # Contributing
 
+## License
+
+Unless you explicitly state otherwise, contributions intentionally submitted for inclusion in Latch Bar are licensed under the [Apache License, Version 2.0](LICENSE), as described in Section 5 of that license. You retain copyright in your contributions.
+
+Preserve applicable third-party license and attribution notices when adding or updating dependencies, code, or assets.
+
+## Development and releases
+
 Create short-lived branches from `main` and open pull requests back to `main`. Prefer squash merging and give the pull request a Conventional Commit title so automated releases can determine the next version:
 
 - `fix: preserve the selected editor when replacing text` creates a patch release.
