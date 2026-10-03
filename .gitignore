@@ -5,6 +5,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+__pycache__/
 
 # Local Codex and generated schemas
 work/

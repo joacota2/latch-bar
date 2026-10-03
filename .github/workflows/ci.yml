@@ -38,6 +38,9 @@ jobs:
       - name: Verify synchronized versions
         run: npm run check:version
 
+      - name: Verify third-party attribution and asset provenance
+        run: npm run licenses:check
+
       - name: Test frontend
         run: npm test
 
