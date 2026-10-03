@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/joacota2/latch-bar/compare/v0.3.2...v0.3.3) (2026-10-03)
+
+
+### Bug Fixes
+
+* settings layout and stale Context Bar agent labels ([48b6817](https://github.com/joacota2/latch-bar/commit/48b6817ae85a9eba3429c8cef4dd2bbd0b44b1f0))
+
 ## [0.3.2](https://github.com/joacota2/latch-bar/compare/v0.3.1...v0.3.2) (2026-10-02)
 
 
