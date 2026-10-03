@@ -1,6 +1,6 @@
 # Latch Bar
 
-https://github.com/user-attachments/assets/8d326518-b544-4701-b11d-904afe39e61f
+https://github.com/user-attachments/assets/448b1336-c6d1-4ff6-a669-37a525eb525d
 
 <p align="center">
   <strong>Bring the right Codex agent to any text selection on your Mac.</strong><br>
