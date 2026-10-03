@@ -10,9 +10,10 @@
     "src-tauri/Cargo.toml": "7d417270a454e8753e74a3a7bbf82d266b9b249a9e89d18feeade91cc695f564",
     "src-tauri/Cargo.lock": "335029ed1064471a66e9522cfea95c93b9b1aa5d594f45e8e99c6d5d78a61299",
     "third-party/supplements.json": "d9fde90d0304507fcd4641d56fb9985711636d26ea8ad2690f7f80543c1a7af4",
-    "scripts/third-party.py": "ed665bc3331662ea6d34b0d3601c2237ae82807b34dca511d58e59f5ff50f46e",
+    "scripts/third-party.py": "358468e745550d1d68b05d40f3b9fa522e0844027368f177f52604a5f6534c90",
     "src/styles.css": "b59d23f1e828488a9df5c96dc700c756b2577d6ad8e251c73dc6c0b300d73192",
     "third-party/provenance.json": "addad14f474af848f41cfcf0c2d9977e5f9387321ed906be7a8d40d7f7ecccbb",
+    "vite.config.ts": "ab3e554279a065d75024b82c830d7dc3f4cda42c567fce24223890457386309f",
     "third-party/supplemental/0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9.txt": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
     "third-party/supplemental/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
     "third-party/supplemental/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
@@ -28,7 +29,7 @@
     "third-party/supplemental/c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae.txt": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
   },
   "output_sha256": {
-    "THIRD_PARTY_NOTICES.txt": "455e65c5f0530ee4c3b10e9040488346a0fe78ca2707bc53d8d76484dded06d9",
+    "THIRD_PARTY_NOTICES.txt": "5b973a6ef2ca11cf28bb382920d15d2d07b15e981037dc68c0500ae556afe239",
     "third-party/sources/cssparser-macros-0.6.1.crate": "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331",
     "third-party/sources/cssparser-0.36.0.crate": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
     "third-party/sources/dtoa-short-0.3.5.crate": "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87",
@@ -6161,6 +6162,38 @@
       ]
     },
     {
+      "id": "npm:@babel/helpers@7.29.7",
+      "name": "@babel/helpers",
+      "version": "7.29.7",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/@babel/helpers/-/helpers-7.29.7.tgz",
+      "integrity": "sha512-1k2lAGRMfHTcwuNYcCNUmaUffmQv8KWMfh2iJUUeRlwlwH4FdNG7mfPI10NPfLHJFThE4Tyr4mv7kTNZOiPuBg==",
+      "scope": "build tooling with potentially emitted runtime helpers",
+      "notices": [
+        {
+          "origin": "LICENSE",
+          "text_sha256": "4be9d87b56a306293223b490c0d0b245e9e94f39884147bf051a6c7b825aeb30"
+        }
+      ]
+    },
+    {
+      "id": "npm:@babel/runtime@7.29.7",
+      "name": "@babel/runtime",
+      "version": "7.29.7",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/@babel/runtime/-/runtime-7.29.7.tgz",
+      "integrity": "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==",
+      "scope": "build tooling with potentially emitted runtime helpers",
+      "notices": [
+        {
+          "origin": "LICENSE",
+          "text_sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+        }
+      ]
+    },
+    {
       "id": "npm:@tauri-apps/api@2.11.1",
       "name": "@tauri-apps/api",
       "version": "2.11.1",
@@ -6240,6 +6273,38 @@
       "review_note": "The npm archive omits license files; retrieved from the gitHead recorded in its published npm metadata."
     },
     {
+      "id": "npm:@vitejs/plugin-react@5.2.0",
+      "name": "@vitejs/plugin-react",
+      "version": "5.2.0",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-5.2.0.tgz",
+      "integrity": "sha512-YmKkfhOAi3wsB1PhJq5Scj3GXMn3WvtQ/JC0xoopuHoXSdmtdStOpFrYaT1kie2YgFBcIe64ROzMYRjCrYOdYw==",
+      "scope": "build tooling with potentially emitted runtime helpers",
+      "notices": [
+        {
+          "origin": "LICENSE",
+          "text_sha256": "29b68325fe026047d13e187b44c33b2acacf7dc647dec4583702e59f235e13b5"
+        }
+      ]
+    },
+    {
+      "id": "npm:esbuild@0.28.2",
+      "name": "esbuild",
+      "version": "0.28.2",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
+      "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==",
+      "scope": "build tooling with potentially emitted runtime helpers",
+      "notices": [
+        {
+          "origin": "LICENSE.md",
+          "text_sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+        }
+      ]
+    },
+    {
       "id": "npm:lucide-react@0.468.0",
       "name": "lucide-react",
       "version": "0.468.0",
@@ -6290,6 +6355,22 @@
       ]
     },
     {
+      "id": "npm:rollup@4.62.2",
+      "name": "rollup",
+      "version": "4.62.2",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/rollup/-/rollup-4.62.2.tgz",
+      "integrity": "sha512-RFnrW4lhXA3s3eqHDZvN654g8OTjzRfqpIRJYczCGB6HzphckVAi/Qh4tbPUbRuDi7s1Llv8g/NspLkttY3gTA==",
+      "scope": "build tooling with potentially emitted runtime helpers",
+      "notices": [
+        {
+          "origin": "LICENSE.md",
+          "text_sha256": "fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8"
+        }
+      ]
+    },
+    {
       "id": "npm:scheduler@0.27.0",
       "name": "scheduler",
       "version": "0.27.0",
@@ -6301,6 +6382,22 @@
         {
           "origin": "LICENSE",
           "text_sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+        }
+      ]
+    },
+    {
+      "id": "npm:vite@7.3.6",
+      "name": "vite",
+      "version": "7.3.6",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/vite/-/vite-7.3.6.tgz",
+      "integrity": "sha512-4XP60spRGjSZFf1qYH+dJIkK2znL3zQfl9KkOV9MkkRR/3Dls0dxaBsQPTloEc5BLXWPL9vsOxopxyKoMmDueg==",
+      "scope": "build tooling with potentially emitted runtime helpers",
+      "notices": [
+        {
+          "origin": "LICENSE.md",
+          "text_sha256": "a77a1c089806b39ad339535bdf3677f636c91d96693e8ad7b11fe733f650ea64"
         }
       ]
     },

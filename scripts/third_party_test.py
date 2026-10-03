@@ -132,6 +132,14 @@ class AttributionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unreviewed package host"):
             licenses.download("https://example.com/source.tar.gz", "sha256-abc")
 
+    def test_emitted_build_helpers_are_included_but_test_tools_are_not(self):
+        packages = {"": {"name": "app"}}
+        for name, dev in [("react", False), ("vite", True), ("vitest", True)]:
+            packages["node_modules/" + name] = {"version": "1.0.0", "dev": dev,
+                "license": "MIT", "integrity": "sha256-fixture", "resolved": "https://registry.npmjs.org/fixture"}
+        self.write_json("package-lock.json", {"packages": packages})
+        self.assertEqual({p["name"] for p in licenses.npm_packages(self.root)}, {"react", "vite"})
+
     def test_manifest_path_cannot_escape_repository(self):
         for path in ["../elsewhere", "/tmp/elsewhere"]:
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Unsafe relative path"):

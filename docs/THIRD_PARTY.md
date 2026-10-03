@@ -12,7 +12,7 @@ npm run licenses:generate
 npm run licenses:check
 ```
 
-The generator uses both macOS target dependency graphs, production npm packages, locked checksums, and reviewed supplemental license files. It does not run dependency scripts. Package archives may be downloaded from crates.io/npm; verified archives in Cargo's cache or the system temporary directory are reused.
+The generator uses both macOS target dependency graphs, production npm packages, JavaScript build tools that may emit runtime helpers, locked checksums, and reviewed supplemental license files. It does not run dependency scripts. Package archives may be downloaded from crates.io/npm; verified archives in Cargo's cache or the system temporary directory are reused. If the JavaScript build pipeline changes, review the emitted code and update `EMITTED_JS_TOOLS` in the generator; `vite.config.ts` is covered by the stale-attribution check.
 
 Review the resulting `THIRD_PARTY_NOTICES.txt`, `third-party/manifest.json`, and MPL source archives. All changes are deterministic: there are no timestamps, local paths, or machine-specific paths in generated output. CI checks input/output hashes offline, so dependency changes cannot silently leave stale notices. The generation command requires network access when an archive is not cached.
 
