@@ -183,7 +183,7 @@ export function ContextBarWindow() {
 
     if (status === "failed") {
       const turnError = asRecord(turn.error);
-      const detail = asText(turnError.message) || "Codex could not complete this run";
+      const detail = asText(turnError.message) || "The agent could not complete this run";
       setError(detail);
       setState("error");
       setContextBarState("error");
@@ -193,7 +193,7 @@ export function ContextBarWindow() {
       shouldHide = true;
     } else {
       const completedText = finalText;
-      if (!completedText) setError("Codex completed without a text response. The source text has not been changed.");
+      if (!completedText) setError("The agent completed without a text response. The source text has not been changed.");
       resultRef.current = completedText;
       setResult(completedText);
       const conversation = appendMessage({ id: `assistant-${Date.now()}`, role: "assistant", text: completedText });
@@ -289,7 +289,7 @@ export function ContextBarWindow() {
     ].includes(message.method ?? "")) {
       const params = asRecord(message.params);
       const command = asText(params.command);
-      const title = command ? `Codex wants to run ${command}` : message.method === "item/fileChange/requestApproval" ? "Codex wants to change files" : "Codex requests additional access";
+      const title = command ? `The agent wants to run ${command}` : message.method === "item/fileChange/requestApproval" ? "The agent wants to change files" : "The agent requests additional access";
       const detail = asText(params.cwd) || asText(params.reason) || "Review this request before continuing";
       setApproval({ requestId: message.id, method: message.method!, title, detail, params });
       setState("approval");
@@ -447,7 +447,7 @@ export function ContextBarWindow() {
       : null;
     if (epoch.current !== requestEpoch) return;
     if ((workspace || usesNamedProfile) && !environment) throw new Error("Could not load the Codex environment for this workspace/profile. Refresh it in Studio and try again.");
-    await launchRun(runtimeAgent, runtimeAgent, source, "Codex is working", environment?.skills ?? skills, environment?.mcpServers ?? mcps);
+    await launchRun(runtimeAgent, runtimeAgent, source, "The agent is working", environment?.skills ?? skills, environment?.mcpServers ?? mcps);
   };
 
   const chooseAgent = async (target: CodexAgent) => {
@@ -777,7 +777,7 @@ export function ContextBarWindow() {
             </article>)}
             {running && <article className="context-chat-message assistant is-streaming">
               <span>{agent.name}</span>
-              {result && agent.outputPolicy.streamPreview ? <p>{result}</p> : <div className="context-stream-placeholder"><i /><span>Codex is preparing the response…</span></div>}
+              {result && agent.outputPolicy.streamPreview ? <p>{result}</p> : <div className="context-stream-placeholder"><i /><span>Your agent is preparing the response…</span></div>}
             </article>}
           </div>
           {instructionOpen && <form className="context-follow-up" onSubmit={(event) => void continueRun(event)}>
@@ -789,7 +789,7 @@ export function ContextBarWindow() {
         </div>}
 
         {state === "approval" && approval && <div className="context-run-view">
-          <header className="context-run-header"><span className="approval-icon"><ShieldAlert size={18} /></span><div className="context-run-copy"><strong>{approval.title}</strong>{approvalError && <span role="alert">{approvalError}</span>}<small>{agent?.sandbox === "full-access" && <strong className="context-access-warning">Full computer access · </strong>}Codex needs your approval to continue here</small></div><div className="context-run-actions"><button type="button" className="allow-button" disabled={approvalPending} onClick={() => void answerApproval(true)}>Allow once</button><button type="button" className="deny-button" disabled={approvalPending} onClick={() => void answerApproval(false)}>Deny</button><button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void cancel()} aria-label="Cancel"><X size={14} /></button></div></header>
+          <header className="context-run-header"><span className="approval-icon"><ShieldAlert size={18} /></span><div className="context-run-copy"><strong>{approval.title}</strong>{approvalError && <span role="alert">{approvalError}</span>}<small>{agent?.sandbox === "full-access" && <strong className="context-access-warning">Full computer access · </strong>}Your agent needs your approval to continue here</small></div><div className="context-run-actions"><button type="button" className="allow-button" disabled={approvalPending} onClick={() => void answerApproval(true)}>Allow once</button><button type="button" className="deny-button" disabled={approvalPending} onClick={() => void answerApproval(false)}>Deny</button><button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void cancel()} aria-label="Cancel"><X size={14} /></button></div></header>
           <div className="context-approval-detail">{approval.detail}</div>
         </div>}
 

@@ -17,7 +17,7 @@ export function McpsPage() {
     }
   };
   return <div className="page catalog-page">
-    <PageIntro eyebrow="CODEX APP-SERVER" title="Your tools, already connected" description="Latch uses Codex's effective MCP inventory and live authentication status. Credentials never leave Codex." action={<button className="secondary-button" disabled={reloading} onClick={() => void reload()}><RefreshCw className={reloading ? "spin" : ""} size={15} /> Refresh from Codex</button>} />
+    <PageIntro eyebrow="MCP SERVERS" title="Your tools, already connected" description="Latch uses Codex's effective MCP inventory and live authentication status. Credentials never leave Codex." action={<button className="secondary-button" disabled={reloading} onClick={() => void reload()}><RefreshCw className={reloading ? "spin" : ""} size={15} /> Refresh from Codex</button>} />
     <div className="catalog-meta"><span><span className="status-dot" /> {mcps.filter((mcp) => mcp.health === "connected").length} connected</span><span>Source: <code>{codexEnvironment?.configPath ?? "Codex app-server"}</code></span><button disabled={!codexEnvironment?.configPath} onClick={() => void revealItemInDir(codexEnvironment!.configPath).catch(() => notify("Could not show the Codex configuration file"))}>Open config <ExternalLink size={12} /></button></div>
     <div className="catalog-grid">
       {mcps.map((mcp) => <article className="catalog-card" key={mcp.id}>

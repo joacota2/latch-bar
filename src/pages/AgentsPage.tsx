@@ -41,7 +41,7 @@ export function AgentsPage() {
     <div className="page agents-page">
       <section className="hero-banner">
         <div className="hero-icon"><Sparkles size={22} /></div>
-        <div><span className="eyebrow">YOUR AGENTS, EVERYWHERE</span><h2>One selection. The right expert.</h2><p>Highlight text in any app and your favorite Codex profiles appear right beside it.</p></div>
+        <div><span className="eyebrow">YOUR AGENTS, EVERYWHERE</span><h2>One selection. The right expert.</h2><p>Highlight text in any app and your favorite agents appear right beside it.</p></div>
         <div className="hero-preview" aria-label="Context bar preview"><span title="Improve writing" aria-label="Improve writing"><i>✦</i></span><span title="Summarize" aria-label="Summarize"><i>≡</i></span><span title="Explain simply" aria-label="Explain simply"><i>?</i></span><b>···</b></div>
       </section>
 

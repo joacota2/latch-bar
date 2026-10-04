@@ -2,7 +2,7 @@
 name = "latch-bar"
 license = "Apache-2.0"
 version = "0.3.5"
-description = "A contextual Codex surface for desktop selections"
+description = "Your agents, right where you need them"
 authors = ["Latch Bar"]
 edition = "2021"
 

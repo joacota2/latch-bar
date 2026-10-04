@@ -67,7 +67,7 @@ export function RunsPage() {
         </div>
         <div className="run-detail-body">
           <div className="detail-grid"><div><span>Model</span><strong>{selected.model}</strong></div><div><span>Sandbox</span><strong>{selected.sandbox}</strong></div><div><span>Thread</span><strong>{selected.threadId ?? "—"}</strong></div><div><span>Duration</span><strong>{selected.duration ?? "In progress"}</strong></div></div>
-          {selected.status === "approval" && <div className="approval-card"><ShieldAlert size={20} /><div><h3>Codex is waiting for permission</h3><p>Respond from the Context Bar beside the original selection.</p></div></div>}
+          {selected.status === "approval" && <div className="approval-card"><ShieldAlert size={20} /><div><h3>Your agent is waiting for permission</h3><p>Respond from the Context Bar beside the original selection.</p></div></div>}
           {selected.finalResponse && <div className="result-card"><div><h3>Result</h3><button onClick={() => { void navigator.clipboard.writeText(selected.finalResponse!).then(() => notify("Result copied")).catch(() => notify("Could not copy the result")); }}><Copy size={14} /> Copy</button></div><p>{selected.finalResponse}</p></div>}
           <div className="event-log"><h3>Activity</h3><div><i className={selected.status === "failed" ? "error" : "done"} /><span>{selected.activity}</span><small>{selected.duration ?? "now"}</small></div></div>
         </div>

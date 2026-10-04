@@ -8,7 +8,7 @@ export function SkillsPage() {
   const [query, setQuery] = useState("");
   const visible = useMemo(() => skills.filter((skill) => `${skill.name} ${skill.description}`.toLowerCase().includes(query.toLowerCase())), [query, skills]);
   return <div className="page catalog-page">
-    <PageIntro eyebrow="CODEX APP-SERVER" title="Skills Codex already knows" description="Names, scopes, availability, and paths come from Codex's effective Skill resolver." action={<label className="inline-search"><Search size={15} /><input aria-label="Search skills" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a skill…" /></label>} />
+    <PageIntro eyebrow="SKILLS" title="Workflows for your agents" description="Names, scopes, availability, and paths come from Codex's effective Skill resolver." action={<label className="inline-search"><Search size={15} /><input aria-label="Search skills" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a skill…" /></label>} />
     <div className="skills-list">
       {visible.map((skill) => { const users = agents.filter((agent) => agent.enabledSkills.includes(skill.id)); return <article className="skill-row" key={skill.id}>
         <span className="skill-icon"><Braces size={18} /></span>

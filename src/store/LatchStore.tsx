@@ -174,7 +174,7 @@ export function LatchProvider({ children }: { children: ReactNode }) {
   const createAgent = useCallback(async (workspacePath?: string) => {
     const id = `agent-${crypto.randomUUID()}`;
     const saved = await commit((current) => ({ ...current, agents: [...current.agents, {
-      ...seedAgents[0], id, name: "Untitled agent", description: "Describe what this Codex profile should do.", icon: "✦", pinned: false,
+      ...seedAgents[0], id, name: "Untitled agent", description: "Describe what this agent should do.", icon: "✦", pinned: false,
       order: current.agents.length, workspaceMode: workspacePath ? "fixed" : "none", fixedWorkspacePath: workspacePath, enabledMcpServers: [], enabledSkills: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }] }));
     if (saved) setSelectedAgentId(id);

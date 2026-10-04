@@ -165,7 +165,7 @@ describe("Context Bar lifecycle", () => {
     expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Cancel/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Replace/ })).toBeDisabled();
-    expect(screen.getByText("Codex is preparing the response…").closest("article")).toHaveClass("context-chat-message", "assistant", "is-streaming");
+    expect(screen.getByText("Your agent is preparing the response…").closest("article")).toHaveClass("context-chat-message", "assistant", "is-streaming");
     expect(mocks.openStudio).not.toHaveBeenCalled();
     await waitFor(() => expect(mocks.resizeContextBar).toHaveBeenCalledWith(300, 660, 80));
 

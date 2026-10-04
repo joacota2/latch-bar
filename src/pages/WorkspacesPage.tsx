@@ -31,8 +31,8 @@ export function WorkspacesPage() {
     finally { setChoosing(false); }
   };
   return <div className="page catalog-page">
-    <PageIntro eyebrow="SAVED FOLDERS & CODEX HISTORY" title="Workspaces" description="Save local projects or reuse working directories reported by Codex." action={<button className="primary-button" disabled={choosing} onClick={() => void chooseFolder()}><Plus size={15} /> Add workspace</button>} />
-    <div className="workspace-detection"><span><Radar size={18} /></span><div><strong>Codex workspace discovery</strong><p>Saved folders stay available alongside recent Codex thread directories.</p></div><span className="enabled-pill">{environmentStatus === "loading" ? "Refreshing" : `${workspaces.length} available`}</span></div>
+    <PageIntro eyebrow="SAVED FOLDERS & RECENT PROJECTS" title="Workspaces" description="Save local projects or reuse working directories reported by Codex." action={<button className="primary-button" disabled={choosing} onClick={() => void chooseFolder()}><Plus size={15} /> Add workspace</button>} />
+    <div className="workspace-detection"><span><Radar size={18} /></span><div><strong>Workspace discovery</strong><p>Saved folders stay available alongside recent Codex thread directories.</p></div><span className="enabled-pill">{environmentStatus === "loading" ? "Refreshing" : `${workspaces.length} available`}</span></div>
     {environmentError && <p role="alert">{environmentError}</p>}
     <div className="workspace-list">
       {workspaces.map((workspace) => <article className="workspace-row" key={workspace.id}>
