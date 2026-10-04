@@ -63,8 +63,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "shortDescription": "Codex profiles for any selected context",
-    "longDescription": "Select text in any application and run a permission-scoped Codex profile beside it.",
+    "shortDescription": "Your agents, right where you need them",
+    "longDescription": "Select text in any application and bring the right agent to it, with the tools and permissions you choose.",
     "macOS": {
       "minimumSystemVersion": "12.0"
     },

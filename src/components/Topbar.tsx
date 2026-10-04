@@ -5,12 +5,12 @@ import { getPlatformStatus, requestAccessibilityPermission } from "../services/r
 import { useLatch } from "../store/LatchStore";
 
 const labels: Record<NavKey, [string, string]> = {
-  agents: ["Agents", "Create specialized Codex profiles for any context."],
-  runs: ["Runs", "See what Codex is doing and what needs your attention."],
-  mcps: ["MCP servers", "Tools available from your existing Codex configuration."],
-  skills: ["Skills", "Reusable workflows already available to Codex."],
+  agents: ["Agents", "Create specialized agents for any context."],
+  runs: ["Runs", "See what your agents are doing and what needs your attention."],
+  mcps: ["MCP servers", "Connected tools available to your agents."],
+  skills: ["Skills", "Reusable workflows available to your agents."],
   workspaces: ["Workspaces", "Projects Latch can connect to selected context."],
-  settings: ["Settings", "Control Latch, Codex, selection behavior, and privacy."],
+  settings: ["Settings", "Control your integrations, selection behavior, and privacy."],
 };
 
 interface SearchEntry {

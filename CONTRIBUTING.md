@@ -23,7 +23,7 @@ To preview Studio in a browser:
 npm run dev
 ```
 
-Open `http://127.0.0.1:1420`. The browser preview cannot capture desktop selections or execute Codex agents; those features require the Tauri shell.
+Open `http://127.0.0.1:1420`. The browser preview cannot capture desktop selections or execute agents; those features require the Tauri shell.
 
 Enable Accessibility under **Settings → Selection → Enable Accessibility**. Development builds are ad-hoc signed, so rebuilding the native executable may require removing its old entry in macOS Accessibility settings and granting access again.
 

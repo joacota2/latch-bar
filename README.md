@@ -3,7 +3,7 @@
 https://github.com/user-attachments/assets/448b1336-c6d1-4ff6-a669-37a525eb525d
 
 <p align="center">
-  <strong>Bring the right Codex agent to any text selection on your Mac.</strong><br>
+  <strong>Your agents, right where you need them.</strong><br>
   Select context, choose a permission-scoped agent, and inspect or apply the streamed result without breaking your flow.
 </p>
 
@@ -30,7 +30,7 @@ Latch Bar includes five agents to get started: **Improve writing**, **Translate 
 
 ## Get started
 
-Requires **macOS 12 or later** and an installed, signed-in Codex runtime. The download supports both Apple silicon and Intel Macs.
+The current release uses Codex as its agent runtime and requires **macOS 12 or later** with Codex installed and signed in. The download supports both Apple silicon and Intel Macs.
 
 1. [Download Latch Bar](https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg) and install it in Applications.
 2. Open **Settings → Selection → Enable Accessibility**, then allow Latch Bar in **System Settings → Privacy & Security → Accessibility**.
