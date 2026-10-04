@@ -88,3 +88,7 @@ Create short-lived branches from `main` and open pull requests back to `main`. P
 - `docs:`, `test:`, `refactor:`, `build:`, and `chore:` do not create a release by themselves.
 
 Release Please maintains a release pull request with synchronized versions and `CHANGELOG.md`. Merging it creates a draft release; GitHub Actions builds, signs, notarizes, verifies, and publishes the universal macOS DMG. See the [release guide](docs/RELEASING.md) for setup and recovery procedures.
+
+## Security checks
+
+Report vulnerabilities privately using [SECURITY.md](SECURITY.md). Before submitting, run `gitleaks git . --log-opts="--all" --redact=100`, `npm audit`, and `python3 scripts/audit-dependencies.py` (requires Cargo audit 0.22.2). CI runs these checks on pull requests, pushes to main, and weekly. New or expired Rust advisory exceptions fail the audit; do not add broad ignore rules. Any supported-platform change requires reviewing the advisory policy as well as attribution.

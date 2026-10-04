@@ -13,3 +13,10 @@
 /docs/BRAND.md @joacota2
 /docs/PROVENANCE.md @joacota2
 /docs/THIRD_PARTY.md @joacota2
+/SECURITY.md @joacota2
+/.gitleaks.toml @joacota2
+/security/ @joacota2
+/scripts/audit* @joacota2
+/scripts/check-sensitive-files.py @joacota2
+/scripts/sensitive_files_test.py @joacota2
+/src-tauri/src/public_release.rs @joacota2

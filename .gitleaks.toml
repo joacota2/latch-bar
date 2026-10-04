@@ -1,0 +1,10 @@
+title = "Latch Bar secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "credential-file"
+description = "Credential containers and private key files must not be committed"
+path = '''(?i)(^|/)(id_rsa|id_ed25519|id_ecdsa|id_dsa|updater\.password|[^/]+\.(p8|p12|pfx|key|pem|keychain|keychain-db|mobileprovision|provisionprofile))$'''
+regex = '''(?s).+'''

@@ -2,7 +2,7 @@ mod activity;
 mod app_server;
 mod persistence;
 mod platform;
-mod private_release;
+mod public_release;
 mod runtime;
 mod scanner;
 mod updates;
