@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/joacota2/latch-bar/compare/v0.3.4...v0.3.5) (2026-10-04)
+
+
+### Bug Fixes
+
+* prepare public updates and enforce launch security checks ([#25](https://github.com/joacota2/latch-bar/issues/25)) ([c9890ce](https://github.com/joacota2/latch-bar/commit/c9890ce636c35627bd9374e20680fb4c330c3ead))
+
 ## [0.3.4](https://github.com/joacota2/latch-bar/compare/v0.3.3...v0.3.4) (2026-10-03)
 
 
