@@ -155,7 +155,7 @@ async fn check(app: &AppHandle) -> Result<UpdateState, String> {
         publish(app, &mut inner.state);
     }
     let result = async {
-        tokio::time::timeout(Duration::from_secs(65), crate::private_release::check(app))
+        tokio::time::timeout(Duration::from_secs(25), crate::public_release::check(app))
             .await
             .map_err(|_| "The update check timed out. Please try again.".to_string())?
     }

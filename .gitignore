@@ -20,6 +20,21 @@ src-tauri/gen/
 .env.*
 !.env.example
 *.certSigningRequest
+# Signing credentials and local key stores (public updater keys may be committed)
+*.p8
+*.p12
+*.pfx
+*.key
+*.pem
+*.keychain
+*.keychain-db
+id_rsa
+id_ed25519
+id_ecdsa
+id_dsa
+updater.password
+*.mobileprovision
+*.provisionprofile
 .DS_Store
 .idea/
 .vscode/

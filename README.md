@@ -38,7 +38,9 @@ Requires **macOS 12 or later** and an installed, signed-in Codex runtime. The do
 
 Latch uses your existing Codex login. The default agents work without a workspace or integrations.
 
-Updates are available under **Settings → General → Updates**. While releases are private, downloading and updating requires repository access; in-app updates also require GitHub CLI signed in with `gh auth login --hostname github.com`.
+Updates are available under **Settings → General → Updates**. Public downloads and current in-app updates do not require GitHub CLI or a GitHub account. If an older build asks you to sign in to GitHub, install the latest DMG once to switch to public updates.
+
+To report a vulnerability, use the [private security reporting route](SECURITY.md).
 
 ## Text capture and privacy
 

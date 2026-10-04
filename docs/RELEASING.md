@@ -61,11 +61,11 @@ Add these environment secrets:
 | `APPLE_API_KEY` | App Store Connect API Key ID |
 | `APPLE_API_PRIVATE_KEY` | Base64-encoded App Store Connect `.p8` |
 
-If the current private-repository plan does not support environment secrets, create the `macos-release` environment without protection and store the Apple values as repository Actions secrets with the same names. The workflow does not change. Move them to protected environment secrets and add a required reviewer when the repository becomes public.
+Keep all Apple and updater signing secrets in the protected `macos-release` environment. Only `RELEASE_PLEASE_TOKEN` belongs at repository scope. Require `joacota2` to approve releases, allow self-review for the solo maintainer, and disable administrator bypass of the release approval gate.
 
 Under **Settings → Actions → General**, keep the default `GITHUB_TOKEN` permissions read-only. Each workflow job explicitly requests only the additional permissions it needs.
 
-Protect `main` with pull requests and require the `CI / Verify` check. Prefer squash merges. If this is a solo repository, requiring a separate approving reviewer can prevent the Release Please pull request from being merged; enable required reviews when another maintainer is available.
+Protect `main` with pull requests and require the `Verify`, `Secret scan`, and `Dependency audit` checks, up-to-date branches, and resolved conversations. Disallow force pushes and deletion, enforce the rules for administrators, and use squash merges. There is currently one maintainer, so a separate approving PR reviewer is not required; enable that requirement when another maintainer is available. CODEOWNERS requests the maintainer's review for security-sensitive files. Release approval is required separately.
 
 ## Normal release flow
 
@@ -96,7 +96,9 @@ Before making the repository public:
 
 The installed macOS release checks GitHub Releases 30 seconds after launch and every six hours. Settings → General → Updates also supports an immediate check. Only **Update and restart** downloads and installs a release. Active agent turns, startup, pending approvals, and an open profile editor block installation; installation blocks new turns until it finishes or fails. Development builds and browser previews do not check for updates.
 
-The stable endpoint is `https://github.com/joacota2/latch-bar/releases/latest/download/latest.json`. For this private repository, the native updater resolves the latest published release and its assets through the GitHub API using the user’s existing GitHub CLI login (`gh auth login --hostname github.com`). The account must have read access to the repository. The manifest and archive use authenticated asset API URLs; credentials remain in native memory, and downloaded archives still require the pinned updater signature. Missing CLI/login/access is reported as an actionable error. Never embed a GitHub token in the app. Existing users of the unauthenticated updater must manually install the first version containing this fix. Explicit endpoint overrides (including the test procedure below) continue to use the standard updater without GitHub credentials.
+The stable endpoint is `https://github.com/joacota2/latch-bar/releases/latest/download/latest.json`. Checks and downloads use public HTTPS URLs without `gh`, GitHub login, or an Authorization header. Tauri still verifies every archive against the pinned updater public key before installation. Explicit test/distribution endpoint overrides use the same updater. Never embed a GitHub token in the app.
+
+Users on older builds that require a GitHub login should install the latest DMG once; subsequent updates are anonymous. An existing authenticated installation may also update normally while its GitHub access remains valid.
 
 ### Signing key setup and backup
 

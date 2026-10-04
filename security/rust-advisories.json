@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "supported_release_targets": [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin"
+  ],
+  "exceptions": [
+    {
+      "id": "RUSTSEC-2024-0370",
+      "package": "proc-macro-error",
+      "version": "1.0.4",
+      "kind": "unmaintained",
+      "scope": "non-macos",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2027-01-02",
+      "reason": "Unmaintained proc-macro dependency of the GTK stack. Not in either macOS graph. Reassess when upstream GTK/Tauri dependencies change.",
+      "advisory_url": "https://rustsec.org/advisories/RUSTSEC-2024-0370.html"
+    },
+    {
+      "id": "RUSTSEC-2024-0429",
+      "package": "glib",
+      "version": "0.18.5",
+      "kind": "unsound",
+      "scope": "non-macos",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2027-01-02",
+      "reason": "Tauri GTK/WebKit dependencies require glib 0.18.5 on Linux. The patched 0.20 line is not a compatible lockfile-only update. Neither macOS architecture includes glib; CI rechecks both live dependency graphs. A Linux release is blocked until this is fixed.",
+      "advisory_url": "https://rustsec.org/advisories/RUSTSEC-2024-0429.html"
+    },
+    {
+      "id": "RUSTSEC-2025-0075",
+      "package": "unic-char-range",
+      "version": "0.9.0",
+      "kind": "unmaintained",
+      "scope": "upstream-maintenance",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2027-01-02",
+      "reason": "Unmaintained UNIC Unicode tables used through urlpattern 0.3 -> tauri-utils. Included on macOS. This is an upstream maintenance risk, not a reported exploitable vulnerability in this advisory; track a compatible upstream replacement instead of patching Unicode semantics locally.",
+      "advisory_url": "https://rustsec.org/advisories/RUSTSEC-2025-0075.html"
+    },
+    {
+      "id": "RUSTSEC-2025-0080",
+      "package": "unic-common",
+      "version": "0.9.0",
+      "kind": "unmaintained",
+      "scope": "upstream-maintenance",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2027-01-02",
+      "reason": "Unmaintained UNIC Unicode tables used through urlpattern 0.3 -> tauri-utils. Included on macOS. This is an upstream maintenance risk, not a reported exploitable vulnerability in this advisory; track a compatible upstream replacement instead of patching Unicode semantics locally.",
+      "advisory_url": "https://rustsec.org/advisories/RUSTSEC-2025-0080.html"
+    },
+    {
+      "id": "RUSTSEC-2025-0081",
+      "package": "unic-char-property",
+      "version": "0.9.0",
+      "kind": "unmaintained",
+      "scope": "upstream-maintenance",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2027-01-02",
+      "reason": "Unmaintained UNIC Unicode tables used through urlpattern 0.3 -> tauri-utils. Included on macOS. This is an upstream maintenance risk, not a reported exploitable vulnerability in this advisory; track a compatible upstream replacement instead of patching Unicode semantics locally.",
+      "advisory_url": "https://rustsec.org/advisories/RUSTSEC-2025-0081.html"
+    },
+    {
+      "id": "RUSTSEC-2025-0098",
+      "package": "unic-ucd-version",
+      "version": "0.9.0",
+      "kind": "unmaintained",
+      "scope": "upstream-maintenance",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2027-01-02",
+      "reason": "Unmaintained UNIC Unicode tables used through urlpattern 0.3 -> tauri-utils. Included on macOS. This is an upstream maintenance risk, not a reported exploitable vulnerability in this advisory; track a compatible upstream replacement instead of patching Unicode semantics locally.",
+      "advisory_url": "https://rustsec.org/advisories/RUSTSEC-2025-0098.html"
+    },
+    {
+      "id": "RUSTSEC-2025-0100",
+      "package": "unic-ucd-ident",
+      "version": "0.9.0",
+      "kind": "unmaintained",
+      "scope": "upstream-maintenance",
+      "reviewed_on": "2026-10-04",
+      "review_by": "2027-01-02",
+      "reason": "Unmaintained UNIC Unicode tables used through urlpattern 0.3 -> tauri-utils. Included on macOS. This is an upstream maintenance risk, not a reported exploitable vulnerability in this advisory; track a compatible upstream replacement instead of patching Unicode semantics locally.",
+      "advisory_url": "https://rustsec.org/advisories/RUSTSEC-2025-0100.html"
+    }
+  ]
+}
