@@ -30,10 +30,10 @@ Latch Bar includes five agents to get started: **Improve writing**, **Translate 
 
 ## Get started
 
-The current release uses Codex as its agent runtime and requires **macOS 12 or later** with Codex installed and signed in. The download supports both Apple silicon and Intel Macs.
+The current release uses Codex as its agent runtime and requires **macOS 12 or later** with Codex installed and signed in: the Codex app, the ChatGPT app, or the Codex CLI. The download supports both Apple silicon and Intel Macs.
 
 1. [Download Latch Bar](https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg) and install it in Applications.
-2. Open **Settings → Selection → Enable Accessibility**, then allow Latch Bar in **System Settings → Privacy & Security → Accessibility**.
+2. Open **Settings → Permissions → Set up permissions**. Allow the folder prompt, then turn on Latch Bar in **System Settings → Privacy & Security → Accessibility**. Return to Latch to check access and follow any relaunch guidance. New workspace locations may require additional access.
 3. Select at least three characters in another app and choose an agent from the Context Bar.
 
 Latch uses your existing Codex login. The default agents work without a workspace or integrations.

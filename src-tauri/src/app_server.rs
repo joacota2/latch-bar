@@ -29,7 +29,7 @@ impl AppServerClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|error| format!("Could not start Codex app-server: {error}"))?;
+            .map_err(crate::scanner::codex_spawn_error)?;
         let stdin = child
             .stdin
             .take()

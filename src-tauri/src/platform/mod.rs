@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -17,6 +17,8 @@ const CONTEXT_BAR_COMPACT_HEIGHT: f64 = 86.0;
 const CONTEXT_BAR_MAX_HEIGHT: f64 = 360.0;
 const CONTEXT_BAR_MARGIN: f64 = 8.0;
 const CONTEXT_BAR_GAP: f64 = 10.0;
+const TRACKING_RETRY_INTERVAL: Duration = Duration::from_secs(2);
+const TRACKING_FAILURES_BEFORE_RESTART: u32 = 3;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -64,6 +66,12 @@ pub struct PlatformStatus {
     pub implementation: &'static str,
     pub monitor_running: bool,
     pub context_bar_ready: bool,
+    /// Whether the pointer and keyboard gesture monitor is installed. It requires
+    /// Accessibility and improves capture in apps without a usable AX selection.
+    pub selection_tracking: bool,
+    /// Accessibility is granted but selection tracking repeatedly failed to start;
+    /// relaunching Latch is the remaining remedy.
+    pub restart_recommended: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,6 +85,9 @@ pub trait PlatformAdapter: Send + Sync {
     fn status(&self, prompt: bool) -> PlatformStatus;
     fn start_selection_tracking(&self) -> Result<(), String> {
         Ok(())
+    }
+    fn selection_tracking_running(&self) -> bool {
+        false
     }
     fn capture_selection(
         &self,
@@ -94,6 +105,7 @@ pub trait PlatformAdapter: Send + Sync {
 pub struct PlatformState {
     adapter: Arc<Adapter>,
     monitor_started: AtomicBool,
+    tracking_failures: Arc<AtomicU32>,
     pointer_monitor_started: AtomicBool,
     context_mouse_monitor_started: AtomicBool,
     context_bar_ready: Arc<AtomicBool>,
@@ -362,10 +374,60 @@ fn panelize_context_bar(pointer: *mut std::ffi::c_void) -> Result<(), String> {
 
 #[tauri::command]
 pub fn platform_status(state: State<PlatformState>, prompt: bool) -> PlatformStatus {
-    let mut status = state.adapter.status(prompt);
+    let status = state.adapter.status(prompt);
+    complete_status(&state, status)
+}
+
+fn complete_status(state: &PlatformState, mut status: PlatformStatus) -> PlatformStatus {
     status.monitor_running = state.monitor_started.load(Ordering::SeqCst);
     status.context_bar_ready = state.context_bar_ready.load(Ordering::SeqCst);
+    status.selection_tracking = state.adapter.selection_tracking_running();
+    status.restart_recommended = status.accessibility_trusted
+        && !status.selection_tracking
+        && state.tracking_failures.load(Ordering::SeqCst) >= TRACKING_FAILURES_BEFORE_RESTART;
     status
+}
+
+#[tauri::command]
+pub fn open_privacy_settings(pane: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let anchor = match pane.as_str() {
+            "accessibility" => "Privacy_Accessibility",
+            "files" => "Privacy_FilesAndFolders",
+            _ => return Err("Unknown privacy settings pane".into()),
+        };
+        std::process::Command::new("/usr/bin/open")
+            .arg(format!(
+                "x-apple.systempreferences:com.apple.preference.security?{anchor}"
+            ))
+            .status()
+            .map_err(|error| format!("Could not open System Settings: {error}"))
+            .and_then(|status| {
+                status
+                    .success()
+                    .then_some(())
+                    .ok_or_else(|| "Could not open System Settings".into())
+            })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pane;
+        Err("Privacy settings are available on macOS only".into())
+    }
+}
+
+#[tauri::command]
+pub fn relaunch_app(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), String> {
+    if window.label() != "studio" {
+        return Err("Relaunch Latch Bar from Studio.".into());
+    }
+    let runtime = app.state::<crate::runtime::RuntimeManager>();
+    // Hold the same exclusive lease as an update through process exit. This
+    // prevents a new run or editor from opening between the check and shutdown.
+    let _permit = runtime.1.relaunch()?;
+    runtime.shutdown();
+    app.restart();
 }
 
 #[tauri::command]
@@ -385,13 +447,13 @@ pub fn repair_accessibility_permission(
                 "Could not reset Accessibility permission (tccutil exited with {result})"
             ));
         }
-        return Ok(state.adapter.status(true));
+        return Ok(complete_status(&state, state.adapter.status(true)));
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
-        Ok(state.adapter.status(false))
+        Ok(complete_status(&state, state.adapter.status(false)))
     }
 }
 
@@ -551,9 +613,10 @@ pub fn start_selection_monitor(
             let _ = window.hide();
         }
     }
-    if enabled {
-        // Gesture tracking is an enhancement to Accessibility capture. If macOS
-        // refuses the passive event tap, keep the AX-only monitor operational.
+    // Gesture tracking is an enhancement to Accessibility capture. The monitor loop
+    // starts it once Accessibility is granted and keeps retrying if macOS refuses
+    // the passive event tap, so the AX-only monitor stays operational meanwhile.
+    if enabled && state.adapter.status(false).accessibility_trusted {
         if let Err(error) = state.adapter.start_selection_tracking() {
             eprintln!("Selection gesture tracking is unavailable: {error}");
         }
@@ -567,12 +630,13 @@ pub fn start_selection_monitor(
     let pinned = state.overlay_pinned.clone();
     let dismiss_current_selection = state.dismiss_current_selection.clone();
     let monitor_config = state.monitor_config.clone();
+    let tracking_failures = state.tracking_failures.clone();
     std::thread::spawn(move || {
+        let mut last_tracking_attempt: Option<Instant> = None;
         let mut candidate: Option<(SelectionKey, Instant)> = None;
         let mut last_emitted: Option<SelectionKey> = None;
         let mut dismissed: Option<SelectionKey> = None;
         let mut missed_since: Option<Instant> = None;
-        let mut tracking_trusted = false;
         loop {
             std::thread::sleep(Duration::from_millis(120));
             let config = match monitor_config.lock() {
@@ -593,10 +657,20 @@ pub fn start_selection_monitor(
                 continue;
             }
             let trusted = adapter.status(false).accessibility_trusted;
-            if trusted && !tracking_trusted {
-                let _ = adapter.start_selection_tracking();
+            if trusted
+                && !adapter.selection_tracking_running()
+                && last_tracking_attempt.is_none_or(|at| at.elapsed() >= TRACKING_RETRY_INTERVAL)
+            {
+                last_tracking_attempt = Some(Instant::now());
+                match adapter.start_selection_tracking() {
+                    Ok(()) => tracking_failures.store(0, Ordering::SeqCst),
+                    Err(error) => {
+                        if tracking_failures.fetch_add(1, Ordering::SeqCst) == 0 {
+                            eprintln!("Selection gesture tracking is unavailable: {error}");
+                        }
+                    }
+                }
             }
-            tracking_trusted = trusted;
             if pinned.load(Ordering::SeqCst) || pointer_inside_context_bar(&app) {
                 continue;
             }

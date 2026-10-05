@@ -1,5 +1,6 @@
 mod activity;
 mod app_server;
+mod folder_access;
 mod persistence;
 mod platform;
 mod public_release;
@@ -54,7 +55,10 @@ pub fn run() {
             updates::update_editor_state,
             updates::check_for_updates,
             updates::install_update,
+            folder_access::request_folder_access,
             platform::platform_status,
+            platform::relaunch_app,
+            platform::open_privacy_settings,
             platform::repair_accessibility_permission,
             platform::context_bar_ready,
             platform::focus_selection_application,

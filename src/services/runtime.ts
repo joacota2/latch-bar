@@ -9,6 +9,7 @@ export interface RuntimeStatus {
   version: string;
   codexHome: string;
   mode: "native" | "unavailable";
+  path?: string | null;
 }
 
 export interface PlatformStatus {
@@ -19,7 +20,20 @@ export interface PlatformStatus {
   implementation: string;
   monitorRunning: boolean;
   contextBarReady: boolean;
+  selectionTracking: boolean;
+  restartRecommended: boolean;
 }
+
+export type ProtectedFolder = "documents" | "desktop" | "downloads";
+
+export interface FolderAccess {
+  folder: ProtectedFolder;
+  path: string;
+  granted: boolean;
+  error?: string | null;
+}
+
+const browserPlatform: PlatformStatus = { platform: "browser", supported: false, accessibilityTrusted: false, implementation: "unavailable", monitorRunning: false, contextBarReady: false, selectionTracking: false, restartRecommended: false };
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
@@ -83,19 +97,28 @@ export async function startNativeRun(agent: CodexAgent, input: SelectionInput, s
 export const continueNativeRun = (runId: string, prompt: string) => invoke<void>("continue_codex_run", { runId, prompt });
 
 export async function getPlatformStatus(): Promise<PlatformStatus> {
-  if (!isTauri()) return { platform: "browser", supported: false, accessibilityTrusted: false, implementation: "unavailable", monitorRunning: false, contextBarReady: false };
+  if (!isTauri()) return browserPlatform;
   return invoke<PlatformStatus>("platform_status", { prompt: false });
 }
 
 export async function requestAccessibilityPermission(): Promise<PlatformStatus> {
-  if (!isTauri()) return { platform: "browser", supported: false, accessibilityTrusted: false, implementation: "unavailable", monitorRunning: false, contextBarReady: false };
+  if (!isTauri()) return browserPlatform;
   return invoke<PlatformStatus>("platform_status", { prompt: true });
 }
 
 export async function repairAccessibilityPermission(): Promise<PlatformStatus> {
-  if (!isTauri()) return { platform: "browser", supported: false, accessibilityTrusted: false, implementation: "unavailable", monitorRunning: false, contextBarReady: false };
+  if (!isTauri()) return browserPlatform;
   return invoke<PlatformStatus>("repair_accessibility_permission");
 }
+
+/** Reads each protected folder once. macOS prompts only for folders not yet decided. */
+export async function requestFolderAccess(folders: ProtectedFolder[]): Promise<FolderAccess[]> {
+  if (!isTauri() || folders.length === 0) return [];
+  return invoke<FolderAccess[]>("request_folder_access", { folders });
+}
+
+export const relaunchApp = () => invoke<void>("relaunch_app");
+export const openPrivacySettings = (pane: "accessibility" | "files") => invoke<void>("open_privacy_settings", { pane });
 
 export async function getStudioShortcutStatus(): Promise<boolean> {
   if (!isTauri()) return false;

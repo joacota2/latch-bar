@@ -1,31 +1,29 @@
-import { Check, CircleAlert, ExternalLink, FileCode2, MonitorUp, ShieldCheck } from "lucide-react";
+import { Check, CircleAlert, ExternalLink, FileCode2, ShieldCheck } from "lucide-react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { Toggle } from "../components/ui";
-import { getPlatformStatus, getRuntimeStatus, getStudioShortcutStatus, repairAccessibilityPermission, requestAccessibilityPermission, type PlatformStatus, type RuntimeStatus } from "../services/runtime";
+import { getRuntimeStatus, getStudioShortcutStatus, type RuntimeStatus } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
 import { useUpdates } from "../store/UpdateStore";
 import { UpdatesPanel } from "../components/Updates";
+import { PermissionsPanel } from "../components/Permissions";
+import { needsPermissionSetup, usePermissions } from "../store/PermissionStore";
+
+const tabs = ["general", "permissions", "selection", "codex", "privacy"] as const;
+type SettingsTab = typeof tabs[number];
 
 export function SettingsPage() {
   const { clearData, settings, updateSettings, codexEnvironment, environmentStatus, environmentError, refreshCodexEnvironment, notify } = useLatch();
-  const [tab, setTab] = useState<"general" | "selection" | "codex" | "privacy">("general");
+  const { needsSetup, refresh, viewRequest: permissionsRequest } = usePermissions();
+  const [tab, setTab] = useState<SettingsTab>(() => needsSetup ? "permissions" : "general");
   const { viewRequest } = useUpdates();
   useEffect(() => { if (viewRequest) setTab("general"); }, [viewRequest]);
+  useEffect(() => { if (permissionsRequest) setTab("permissions"); }, [permissionsRequest]);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
-  const [platform, setPlatform] = useState<PlatformStatus | null>(null);
   const [shortcutRegistered, setShortcutRegistered] = useState<boolean | null>(null);
   useEffect(() => {
     if (tab !== "general") return;
     void getStudioShortcutStatus().then(setShortcutRegistered).catch(() => setShortcutRegistered(false));
-  }, [tab]);
-  useEffect(() => {
-    if (tab !== "selection") return;
-    let active = true;
-    const refresh = () => void getPlatformStatus().then((status) => { if (active) setPlatform(status); }).catch(() => undefined);
-    refresh();
-    const timer = window.setInterval(refresh, 1000);
-    return () => { active = false; window.clearInterval(timer); };
   }, [tab]);
   useEffect(() => {
     if (tab !== "codex") return;
@@ -37,28 +35,14 @@ export function SettingsPage() {
       notify("Context Bar paused");
       return;
     }
-    try {
-      const status = await getPlatformStatus();
-      setPlatform(status);
-      if (!status.supported) {
-        notify("Context Bar selection requires the Latch Bar desktop app");
-      } else if (!status.accessibilityTrusted) {
-        await requestAccessibilityPermission();
-        notify("Allow Latch Bar in Accessibility. No restart is needed after approval.");
-      } else {
-        notify("Context Bar enabled");
-      }
-    } catch {
-      notify("Could not check Accessibility permission");
-    }
-  };
-  const repairAccessibility = async () => {
-    try {
-      const status = await repairAccessibilityPermission();
-      setPlatform(status);
-      notify("The stale Accessibility entry was reset. Enable the current Latch Bar copy in macOS Settings.");
-    } catch {
-      notify("Could not repair Accessibility permission");
+    const status = await refresh();
+    if (!status?.supported) {
+      notify("Context Bar selection requires the Latch Bar desktop app");
+    } else if (needsPermissionSetup(status)) {
+      setTab("permissions");
+      notify("Finish permission setup to use the Context Bar");
+    } else {
+      notify("Context Bar enabled");
     }
   };
   const row = (title: string, description: string, checked: boolean, onChange: (value: boolean) => void, disabled = false) => <div className="setting-row"><div><strong>{title}</strong><p>{description}</p></div><Toggle disabled={disabled} checked={checked} onChange={onChange} label={title} /></div>;
@@ -74,7 +58,7 @@ export function SettingsPage() {
         ? "Checking"
         : "Not authenticated";
   return <div className="page settings-page">
-    <div className="settings-tabs">{(["general", "selection", "codex", "privacy"] as const).map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>
+    <div className="settings-tabs">{tabs.map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>
     {tab === "general" && <div className="settings-panel">
       <UpdatesPanel />
       <div className="setting-group">
@@ -83,9 +67,10 @@ export function SettingsPage() {
         <div className="setting-row shortcut-row"><div><strong>Open Studio shortcut</strong><p>Bring Latch to the front from any application.</p></div><span><kbd>⌥ Space</kbd><small className={shortcutRegistered ? "shortcut-state ready" : "shortcut-state"}>{shortcutRegistered === null ? "Checking" : shortcutRegistered ? "Registered" : "Desktop only"}</small></span></div>
       </div>
     </div>}
-    {tab === "selection" && <div className="settings-panel"><div className="runtime-card"><span className="runtime-large-icon"><MonitorUp size={23} /></span><div><span className="eyebrow">NATIVE SELECTION</span><h3>{platform?.accessibilityTrusted ? "Accessibility enabled" : platform?.supported === false ? "Open the desktop app" : "Accessibility permission required"}</h3><p>{platform?.accessibilityTrusted ? `${platform.implementation} is ${platform.monitorRunning && platform.contextBarReady ? "monitoring text selections" : "starting the selection monitor"}.` : "macOS must trust the currently running Latch Bar copy. If the switch is already on but this check fails, repair the stale entry below."}</p></div><button className="secondary-button" onClick={async () => setPlatform(await (platform?.accessibilityTrusted ? getPlatformStatus() : requestAccessibilityPermission()))}>{platform?.accessibilityTrusted ? "Check again" : "Enable Accessibility"}</button></div>{platform?.supported !== false && !platform?.accessibilityTrusted && <div className="setting-group"><h3>Permission switch already enabled?</h3><div className="setting-row"><div><strong>Repair stale Accessibility entry</strong><p>Remove the old code identity from macOS and request access for this installed copy.</p></div><button className="secondary-button" onClick={() => void repairAccessibility()}>Repair permission</button></div></div>}<div className="setting-group"><h3>Selection behavior</h3><div className="setting-row slider-row"><div><strong>Delay before appearing</strong><p>Wait briefly so Latch does not interrupt normal selection.</p></div><label><input type="range" min="0" max="800" step="20" value={settings.selectionDelay} onChange={(event) => updateSettings({ selectionDelay: Number(event.target.value) })} /><b>{settings.selectionDelay} ms</b></label></div><div className="setting-row number-row"><div><strong>Minimum selected characters</strong><p>Ignore accidental or very short selections.</p></div><input type="number" min="1" max="100" value={settings.minimumCharacters} onChange={(event) => updateSettings({ minimumCharacters: Number(event.target.value) })} /></div></div><div className="setting-group"><h3>Excluded applications</h3>{settings.excludedApplications.map((app) => <div className="excluded-app" key={app}><span className="app-token">{app[0]}</span><strong>{app}</strong><span>Protected</span></div>)}</div></div>}
+    {tab === "selection" && <div className="settings-panel">{needsSetup && <div className="info-banner selection-permission-banner"><CircleAlert size={18} /><div><strong>Accessibility is not allowed yet</strong><p>The Context Bar cannot see selections until permission setup is finished.</p></div><button className="secondary-button" onClick={() => setTab("permissions")}>Open Permissions</button></div>}<div className="setting-group"><h3>Selection behavior</h3><div className="setting-row slider-row"><div><strong>Delay before appearing</strong><p>Wait briefly so Latch does not interrupt normal selection.</p></div><label><input type="range" min="0" max="800" step="20" value={settings.selectionDelay} onChange={(event) => updateSettings({ selectionDelay: Number(event.target.value) })} /><b>{settings.selectionDelay} ms</b></label></div><div className="setting-row number-row"><div><strong>Minimum selected characters</strong><p>Ignore accidental or very short selections.</p></div><input type="number" min="1" max="100" value={settings.minimumCharacters} onChange={(event) => updateSettings({ minimumCharacters: Number(event.target.value) })} /></div></div><div className="setting-group"><h3>Excluded applications</h3>{settings.excludedApplications.map((app) => <div className="excluded-app" key={app}><span className="app-token">{app[0]}</span><strong>{app}</strong><span>Protected</span></div>)}</div></div>}
+    {tab === "permissions" && <PermissionsPanel onOpenCodex={() => setTab("codex")} />}
     {tab === "codex" && <div className="settings-panel">
-      <div className="runtime-card"><span className="runtime-large-icon"><FileCode2 size={23} /></span><div><span className="eyebrow">CODEX APP-SERVER</span><h3>{runtime?.available === false ? "Codex not found" : environmentStatus === "error" ? "Codex discovery failed" : environmentStatus === "loading" ? "Discovering Codex environment" : "Connected and ready"}</h3><p>{runtime?.available ? `Version ${runtime.version} · ${codexEnvironment?.models.length ?? 0} models · ${codexEnvironment?.skills.length ?? 0} Skills` : runtime ? "Codex is available only from the native desktop app." : "Using your installed Codex runtime and authentication."}</p></div><button className="secondary-button" disabled={environmentStatus === "loading"} onClick={() => void checkCodex()}>{environmentStatus === "loading" ? "Checking…" : "Check status"}</button></div>
+      <div className="runtime-card"><span className="runtime-large-icon"><FileCode2 size={23} /></span><div><span className="eyebrow">CODEX APP-SERVER</span><h3>{runtime?.available === false ? "Codex not found" : environmentStatus === "error" ? "Codex discovery failed" : environmentStatus === "loading" ? "Discovering Codex environment" : "Connected and ready"}</h3><p>{runtime?.available ? `Version ${runtime.version} · ${codexEnvironment?.models.length ?? 0} models · ${codexEnvironment?.skills.length ?? 0} Skills${runtime.path ? ` · ${runtime.path}` : ""}` : runtime ? "Install the Codex app or the Codex CLI, sign in, then check again." : "Using your installed Codex runtime and authentication."}</p></div><button className="secondary-button" disabled={environmentStatus === "loading"} onClick={() => void checkCodex()}>{environmentStatus === "loading" ? "Checking…" : "Check status"}</button></div>
       {environmentError && <div className="info-banner"><CircleAlert size={18} /><div><strong>Discovery error</strong><p>{environmentError}</p></div></div>}
       {codexEnvironment?.errors.map((error) => <div className="info-banner" key={error}><CircleAlert size={18} /><div><strong>Partial Codex response</strong><p>{error}</p></div></div>)}
       <div className="setting-group"><h3>Installation</h3>

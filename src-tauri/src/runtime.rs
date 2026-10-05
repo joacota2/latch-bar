@@ -80,7 +80,7 @@ fn projectless_cwd_from_documents(documents: &Path) -> PathBuf {
     documents.join("Codex").join("Latch Bar")
 }
 
-fn projectless_cwd() -> Result<String, String> {
+pub(crate) fn projectless_cwd() -> Result<String, String> {
     let documents = dirs::document_dir()
         .or_else(|| dirs::home_dir().map(|home| home.join("Documents")))
         .ok_or("Could not resolve a Documents directory for projectless runs")?;
@@ -279,7 +279,7 @@ fn start_codex_run_blocking(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("Could not start Codex app-server: {error}"))?;
+        .map_err(crate::scanner::codex_spawn_error)?;
     let stdin = Arc::new(Mutex::new(
         child
             .stdin

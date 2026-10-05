@@ -2,7 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { seedAgents } from "../data/seed";
 import type { CodexSkill, McpServer } from "../domain";
-import { getPlatformStatus, repairAccessibilityPermission, requestAccessibilityPermission, scanCodexEnvironment, startNativeRun } from "./runtime";
+import { getPlatformStatus, relaunchApp, repairAccessibilityPermission, requestAccessibilityPermission, requestFolderAccess, scanCodexEnvironment, startNativeRun } from "./runtime";
 
 const platformStatus = {
   platform: "macos",
@@ -23,6 +23,24 @@ describe("Runtime IPC", () => {
 
     await expect(getPlatformStatus()).resolves.toEqual(platformStatus);
     expect(handler).toHaveBeenCalledWith("platform_status", { prompt: false });
+  });
+
+  it("requests protected folders explicitly and skips empty requests", async () => {
+    const handler = vi.fn(() => [{ folder: "documents", path: "/Users/test/Documents", granted: true }]);
+    mockIPC(handler);
+
+    await expect(requestFolderAccess([])).resolves.toEqual([]);
+    expect(handler).not.toHaveBeenCalled();
+    await requestFolderAccess(["documents", "desktop"]);
+    expect(handler).toHaveBeenCalledWith("request_folder_access", { folders: ["documents", "desktop"] });
+  });
+
+  it("relaunches through the native command", async () => {
+    const handler = vi.fn(() => undefined);
+    mockIPC(handler);
+
+    await relaunchApp();
+    expect(handler).toHaveBeenCalledWith("relaunch_app", {});
   });
 
   it("prompts only through the explicit request API", async () => {
