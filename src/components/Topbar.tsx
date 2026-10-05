@@ -1,8 +1,8 @@
 import { CircleHelp, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NavKey } from "../domain";
-import { getPlatformStatus, requestAccessibilityPermission } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
+import { needsPermissionSetup, usePermissions } from "../store/PermissionStore";
 
 const labels: Record<NavKey, [string, string]> = {
   agents: ["Agents", "Create specialized agents for any context."],
@@ -36,6 +36,7 @@ export function Topbar() {
     updateSettings,
     workspaces,
   } = useLatch();
+  const permissions = usePermissions();
   const [searchOpen, setSearchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   useEffect(() => { if (helpRequest) { setHelpOpen(true); setSearchOpen(false); } }, [helpRequest]);
@@ -85,24 +86,26 @@ export function Topbar() {
   };
 
   const toggleContextBar = async () => {
+    // A Context Bar that is on but missing permissions looks inactive. Clicking it
+    // should lead to setup rather than silently pausing it.
+    if (permissions.needsSetup) {
+      permissions.view();
+      return;
+    }
     const enabled = !settings.contextBarEnabled;
     if (!await updateSettings({ contextBarEnabled: enabled })) return;
     if (!enabled) {
       notify("Context Bar paused");
       return;
     }
-    try {
-      const status = await getPlatformStatus();
-      if (!status.supported) {
-        notify("Context Bar selection requires the Latch Bar desktop app");
-      } else if (!status.accessibilityTrusted) {
-        await requestAccessibilityPermission();
-        notify("Allow Latch Bar in Accessibility. No restart is needed after approval.");
-      } else {
-        notify("Context Bar enabled");
-      }
-    } catch {
-      notify("Could not check Accessibility permission");
+    const status = await permissions.refresh();
+    if (!status?.supported) {
+      notify("Context Bar selection requires the Latch Bar desktop app");
+    } else if (needsPermissionSetup(status)) {
+      permissions.view();
+      notify("Finish permission setup to use the Context Bar");
+    } else {
+      notify("Context Bar enabled");
     }
   };
 
@@ -113,8 +116,8 @@ export function Topbar() {
         <div className="topbar-actions">
           <button className="search-button" onClick={() => { setHelpOpen(false); setSearchOpen(true); }}><Search size={16} /><span>Search</span><kbd>⌘ K</kbd></button>
           <button className="icon-button" aria-label="Help" onClick={() => { setSearchOpen(false); setHelpOpen(true); }}><CircleHelp size={18} /></button>
-          <button className={settings.contextBarEnabled ? "bar-status on" : "bar-status"} aria-pressed={settings.contextBarEnabled} onClick={() => void toggleContextBar()}>
-            <Sparkles size={15} /><span>Context Bar</span><i />
+          <button className={permissions.needsSetup ? "bar-status attention" : settings.contextBarEnabled ? "bar-status on" : "bar-status"} aria-pressed={settings.contextBarEnabled} title={permissions.needsSetup ? "The Context Bar needs permissions. Click to set up." : undefined} onClick={() => void toggleContextBar()}>
+            <Sparkles size={15} /><span>{permissions.needsSetup ? "Context Bar · Set up" : "Context Bar"}</span><i />
           </button>
         </div>
       </header>
@@ -141,12 +144,12 @@ export function Topbar() {
           <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" onMouseDown={(event) => event.stopPropagation()}>
             <header><div><span className="eyebrow">QUICK START</span><h2 id="help-title">Using Latch Bar</h2></div><button aria-label="Close help" onClick={() => setHelpOpen(false)}><X size={17} /></button></header>
             <ol>
-              <li><b>1</b><span><strong>Allow Accessibility</strong><small>Open Settings → Selection and grant access when macOS asks. Latch detects approval without a restart.</small></span></li>
+              <li><b>1</b><span><strong>Set up permissions</strong><small>Open Settings → Permissions and choose Set up permissions. macOS asks for everything at once, and Latch detects approval without a restart.</small></span></li>
               <li><b>2</b><span><strong>Select at least {settings.minimumCharacters} characters</strong><small>The Context Bar appears beside the selection after {settings.selectionDelay} ms.</small></span></li>
               <li><b>3</b><span><strong>Choose an agent</strong><small>Latch sends the selected text only after you choose the profile that should process it.</small></span></li>
             </ol>
             <div className="help-shortcuts"><span><kbd>⌥ Space</kbd><small>Open Studio anywhere</small></span><span><kbd>⌘ K</kbd><small>Search Studio</small></span></div>
-            <footer><button className="primary-button" onClick={() => { setActiveNav("settings"); setHelpOpen(false); }}>Open Settings</button></footer>
+            <footer><button className="primary-button" onClick={() => { permissions.view(); setHelpOpen(false); }}>Open Settings</button></footer>
           </section>
         </div>
       )}

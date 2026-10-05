@@ -39,6 +39,8 @@ const REPLACEMENT_VERIFY_INTERVAL: Duration = Duration::from_millis(20);
 const MAX_CLIPBOARD_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 const MINIMUM_DRAG_DISTANCE_SQUARED: f64 = 16.0;
 
+static KEYBOARD_EVENTS_OBSERVED: AtomicBool = AtomicBool::new(false);
+
 type AXUIElementRef = *const c_void;
 
 struct OwnedAxElement(AXUIElementRef);
@@ -1019,6 +1021,13 @@ fn capture_via_clipboard(process_id: i32) -> Result<Option<String>, String> {
 
 impl MacOsAdapter {
     fn start_gesture_monitor(&self) -> Result<(), String> {
+        // Creating a keyboard event tap before Accessibility is granted makes macOS
+        // show a separate Input Monitoring prompt, and the untrusted tap keeps
+        // missing keyboard events until Latch restarts. Accessibility alone
+        // authorizes this listen-only tap, so wait for it.
+        if !unsafe { AXIsProcessTrusted() } {
+            return Err("Accessibility permission has not been granted".into());
+        }
         if self.gesture_monitor_started.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
@@ -1061,7 +1070,12 @@ impl MacOsAdapter {
                         | CGEventType::LeftMouseDragged => {
                             record_mouse_event(&callback_state, event_type, event)
                         }
-                        CGEventType::KeyUp => record_keyboard_event(&callback_state, event),
+                        CGEventType::KeyUp => {
+                            if !KEYBOARD_EVENTS_OBSERVED.swap(true, Ordering::Relaxed) {
+                                eprintln!("Selection gesture monitor is receiving keyboard events");
+                            }
+                            record_keyboard_event(&callback_state, event)
+                        }
                         _ => {}
                     }
                     CallbackResult::Keep
@@ -1079,7 +1093,10 @@ impl MacOsAdapter {
         });
 
         match receiver.recv_timeout(Duration::from_secs(1)) {
-            Ok(Ok(())) => Ok(()),
+            Ok(Ok(())) => {
+                eprintln!("Selection gesture monitor started");
+                Ok(())
+            }
             Ok(Err(error)) => {
                 self.gesture_monitor_started.store(false, Ordering::SeqCst);
                 Err(error)
@@ -1254,6 +1271,10 @@ impl PlatformAdapter for MacOsAdapter {
         self.start_gesture_monitor()
     }
 
+    fn selection_tracking_running(&self) -> bool {
+        self.gesture_monitor_started.load(Ordering::SeqCst)
+    }
+
     fn status(&self, prompt: bool) -> PlatformStatus {
         let trusted = unsafe {
             if prompt {
@@ -1272,6 +1293,8 @@ impl PlatformAdapter for MacOsAdapter {
             implementation: "axuielement+guarded-clipboard",
             monitor_running: false,
             context_bar_ready: false,
+            selection_tracking: false,
+            restart_recommended: false,
         }
     }
 

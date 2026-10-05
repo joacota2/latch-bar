@@ -9,10 +9,12 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SkillsPage } from "./pages/SkillsPage";
 import { WorkspacesPage } from "./pages/WorkspacesPage";
 import { useLatch } from "./store/LatchStore";
-import { getPlatformStatus, isTauri, startSelectionMonitor } from "./services/runtime";
-import { useEffect, useRef, useState } from "react";
+import { isTauri, startSelectionMonitor } from "./services/runtime";
+import { useEffect, useState } from "react";
 import { UpdateProvider, useUpdates } from "./store/UpdateStore";
 import { UpdateNotice, UpdateOverlay } from "./components/Updates";
+import { PermissionNotice } from "./components/Permissions";
+import { PermissionProvider } from "./store/PermissionStore";
 
 const pages = {
   agents: <AgentsPage />,
@@ -24,28 +26,18 @@ const pages = {
 };
 
 export function App() {
-  return <UpdateProvider><Studio /></UpdateProvider>;
+  return <UpdateProvider><PermissionProvider><Studio /></PermissionProvider></UpdateProvider>;
 }
 
 function Studio() {
   const { installing } = useUpdates();
-  const { ready, persistenceError, reloadState, activeNav, setActiveNav, selectedAgentId, toasts, settings, notify } = useLatch();
+  const { ready, persistenceError, reloadState, activeNav, setActiveNav, selectedAgentId, toasts, settings } = useLatch();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("latch-sidebar-collapsed") === "true");
-  const permissionChecked = useRef(false);
 
   useEffect(() => {
     if (!ready) return;
     void startSelectionMonitor(settings).catch(() => undefined);
   }, [ready, settings]);
-
-  useEffect(() => {
-    if (!isTauri() || !settings.contextBarEnabled || permissionChecked.current) return;
-    permissionChecked.current = true;
-    void getPlatformStatus().then((status) => {
-      if (!status.supported || status.accessibilityTrusted) return;
-      notify("Accessibility is not active for the running copy. Open Settings → Selection to enable or repair it.");
-    }).catch(() => notify("Could not check Accessibility permission"));
-  }, [notify, settings.contextBarEnabled]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -70,6 +62,7 @@ function Studio() {
         <div className="app-main">
           <Topbar />
           <UpdateNotice />
+          <PermissionNotice />
           <main className="page-scroll">{pages[activeNav]}</main>
         </div>
         {selectedAgentId && <AgentEditor />}

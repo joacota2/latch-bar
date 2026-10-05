@@ -13,6 +13,8 @@ impl PlatformAdapter for UnsupportedAdapter {
             implementation: "unsupported",
             monitor_running: false,
             context_bar_ready: false,
+            selection_tracking: false,
+            restart_recommended: false,
         }
     }
     fn capture_selection(
