@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/joacota2/latch-bar/compare/v0.3.5...v0.3.6) (2026-10-05)
+
+
+### Bug Fixes
+
+* unify macOS permission setup and find Codex in desktop apps ([#28](https://github.com/joacota2/latch-bar/issues/28)) ([f4d1e6c](https://github.com/joacota2/latch-bar/commit/f4d1e6ca182c878a1193eb25705fce6c2aa99a8c))
+
 ## [0.3.5](https://github.com/joacota2/latch-bar/compare/v0.3.4...v0.3.5) (2026-10-04)
 
 
