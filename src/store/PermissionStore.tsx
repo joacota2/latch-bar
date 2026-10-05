@@ -4,7 +4,7 @@ import { useLatch } from "./LatchStore";
 
 const FOLDER_ACCESS_KEY = "latch-folder-access";
 const POLL_INTERVAL_MS = 1500;
-const protectedFolderPattern = /^\/Users\/[^/]+\/(Desktop|Documents|Downloads)(\/|$)/;
+const protectedFolderPattern = /^(?:\/Users\/[^/]+|~)\/(Desktop|Documents|Downloads)(\/|$)/;
 
 export type FolderAccessState = Partial<Record<ProtectedFolder, FolderAccess>>;
 
@@ -50,23 +50,28 @@ export function needsPermissionSetup(platform: PlatformStatus | null) {
 }
 
 export function PermissionProvider({ children }: { children: ReactNode }) {
-  const { settings, workspaces, setActiveNav, notify } = useLatch();
+  const { settings, workspaces, agents, selectedAgentId, setActiveNav, notify } = useLatch();
   const [platform, setPlatform] = useState<PlatformStatus | null>(null);
   const [folderAccess, setFolderAccess] = useState<FolderAccessState>(readFolderAccess);
   const [busy, setBusy] = useState(false);
   const [viewRequest, setViewRequest] = useState(0);
   const operation = useRef(false);
+  const folderRefresh = useRef<Promise<void> | null>(null);
+  const folderAccessRef = useRef(folderAccess);
 
   const folders = useMemo(() => {
     const needed = new Set<ProtectedFolder>(["documents"]);
-    for (const workspace of workspaces) {
-      const match = protectedFolderPattern.exec(workspace.path);
+    const paths = [...workspaces.map((workspace) => workspace.path), ...agents
+      .filter((agent) => agent.workspaceMode === "fixed")
+      .map((agent) => agent.fixedWorkspacePath ?? "")];
+    for (const path of paths) {
+      const match = protectedFolderPattern.exec(path.trim());
       if (match) needed.add(match[1].toLowerCase() as ProtectedFolder);
     }
     return [...needed];
-  }, [workspaces]);
+  }, [agents, workspaces]);
 
-  const refresh = useCallback(async () => {
+  const refreshPlatform = useCallback(async () => {
     try {
       const status = await getPlatformStatus();
       setPlatform(status);
@@ -76,37 +81,43 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const applyFolderResults = useCallback((results: FolderAccess[]) => {
+    if (results.length === 0) return;
+    const next = { ...folderAccessRef.current };
+    for (const result of results) next[result.folder] = result;
+    folderAccessRef.current = next;
+    writeFolderAccess(next);
+    setFolderAccess(next);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    // Recheck only previously requested folders. New locations belong to the
+    // explicit setup action, not a focus event or the Accessibility poll.
+    if (!operation.current && !folderRefresh.current) {
+      const answered = (["documents", "desktop", "downloads"] as ProtectedFolder[])
+        .filter((folder) => folderAccessRef.current[folder]);
+      folderRefresh.current = requestFolderAccess(answered).then(applyFolderResults)
+        .catch(() => notify("Could not check folder access"))
+        .finally(() => { folderRefresh.current = null; });
+    }
+    const [status] = await Promise.all([refreshPlatform(), folderRefresh.current]);
+    return status;
+  }, [applyFolderResults, notify, refreshPlatform]);
+
   useEffect(() => {
     if (!isTauri()) return;
     void refresh();
-    const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+    const timer = window.setInterval(() => void refreshPlatform(), POLL_INTERVAL_MS);
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
-  }, [refresh]);
-
-  const applyFolderResults = useCallback((results: FolderAccess[]) => {
-    if (results.length === 0) return;
-    setFolderAccess((current) => {
-      const next = { ...current };
-      for (const result of results) next[result.folder] = result;
-      writeFolderAccess(next);
-      return next;
-    });
-  }, []);
-
-  // Folders the person already answered for never prompt again, so refresh their
-  // real status at startup in case it changed in System Settings.
-  useEffect(() => {
-    const answered = Object.keys(readFolderAccess()) as ProtectedFolder[];
-    if (answered.length) void requestFolderAccess(answered).then(applyFolderResults).catch(() => undefined);
-  }, [applyFolderResults]);
+  }, [refresh, refreshPlatform]);
 
   const exclusive = useCallback(async (task: () => Promise<void>) => {
     if (operation.current) return;
     operation.current = true;
     setBusy(true);
-    try { await task(); } finally { operation.current = false; setBusy(false); }
+    try { await folderRefresh.current; await task(); } finally { operation.current = false; setBusy(false); }
   }, []);
 
   const askAccessibility = useCallback(async () => {
@@ -152,8 +163,12 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
   }), [exclusive, notify]);
 
   const relaunch = useCallback(async () => {
-    try { await relaunchApp(); } catch { notify("Could not relaunch Latch Bar. Quit and reopen it."); }
-  }, [notify]);
+    if (selectedAgentId) {
+      notify("Save your changes and close the agent editor before relaunching.");
+      return;
+    }
+    try { await relaunchApp(); } catch (error) { notify(String(error)); }
+  }, [notify, selectedAgentId]);
 
   const view = useCallback(() => {
     setActiveNav("settings");

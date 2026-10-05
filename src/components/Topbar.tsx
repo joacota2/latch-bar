@@ -144,7 +144,7 @@ export function Topbar() {
           <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" onMouseDown={(event) => event.stopPropagation()}>
             <header><div><span className="eyebrow">QUICK START</span><h2 id="help-title">Using Latch Bar</h2></div><button aria-label="Close help" onClick={() => setHelpOpen(false)}><X size={17} /></button></header>
             <ol>
-              <li><b>1</b><span><strong>Set up permissions</strong><small>Open Settings → Permissions and choose Set up permissions. macOS asks for everything at once, and Latch detects approval without a restart.</small></span></li>
+              <li><b>1</b><span><strong>Set up permissions</strong><small>Open Settings → Permissions and choose Set up permissions for your current configuration. Return to Latch after granting access and check whether a relaunch is needed.</small></span></li>
               <li><b>2</b><span><strong>Select at least {settings.minimumCharacters} characters</strong><small>The Context Bar appears beside the selection after {settings.selectionDelay} ms.</small></span></li>
               <li><b>3</b><span><strong>Choose an agent</strong><small>Latch sends the selected text only after you choose the profile that should process it.</small></span></li>
             </ol>

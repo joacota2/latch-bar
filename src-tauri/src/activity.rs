@@ -14,7 +14,7 @@ struct State {
 pub struct ActivityGate(Arc<Mutex<State>>);
 
 pub struct RunPermit(ActivityGate);
-pub struct InstallPermit(ActivityGate);
+pub struct ShutdownPermit(ActivityGate);
 
 impl ActivityGate {
     pub fn start_run(&self) -> Result<RunPermit, String> {
@@ -26,22 +26,31 @@ impl ActivityGate {
         Ok(RunPermit(self.clone()))
     }
 
-    pub fn install(&self) -> Result<InstallPermit, String> {
+    pub fn install(&self) -> Result<ShutdownPermit, String> {
+        self.reserve_shutdown("updating")
+    }
+
+    pub fn relaunch(&self) -> Result<ShutdownPermit, String> {
+        self.reserve_shutdown("relaunching")
+    }
+
+    fn reserve_shutdown(&self, action: &str) -> Result<ShutdownPermit, String> {
         let mut state = self.0.lock().map_err(|_| "Activity state unavailable")?;
         if state.installing {
             return Err(UPDATING.into());
         }
         if state.editor_open {
-            return Err("Save your changes and close the agent editor before updating.".into());
+            return Err(format!(
+                "Save your changes and close the agent editor before {action}."
+            ));
         }
         if state.runs > 0 {
-            return Err(
-                "Finish or cancel active agents, including pending approvals, before updating."
-                    .into(),
-            );
+            return Err(format!(
+                "Finish or cancel active agents, including pending approvals, before {action}."
+            ));
         }
         state.installing = true;
-        Ok(InstallPermit(self.clone()))
+        Ok(ShutdownPermit(self.clone()))
     }
 
     pub fn set_editor_open(&self, open: bool) -> Result<(), String> {
@@ -62,7 +71,7 @@ impl Drop for RunPermit {
     }
 }
 
-impl Drop for InstallPermit {
+impl Drop for ShutdownPermit {
     fn drop(&mut self) {
         if let Ok(mut state) = self.0 .0.lock() {
             state.installing = false;
@@ -99,6 +108,30 @@ impl RunActivity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relaunch_preserves_active_work_and_blocks_new_activity_until_exit() {
+        let gate = ActivityGate::default();
+        let run = RunActivity::new(gate.start_run().unwrap());
+        assert!(gate.relaunch().err().unwrap().contains("active agents"));
+        // Pending approvals retain the same run permit.
+        assert!(gate.relaunch().is_err());
+        run.finish();
+        gate.set_editor_open(true).unwrap();
+        assert!(gate.relaunch().err().unwrap().contains("agent editor"));
+        gate.set_editor_open(false).unwrap();
+        let permit = gate.relaunch().unwrap();
+        assert!(gate.start_run().is_err());
+        assert!(run.resume(&gate).is_err());
+        assert!(gate.set_editor_open(true).is_err());
+        assert!(gate.install().is_err());
+        assert!(gate.relaunch().is_err());
+        drop(permit);
+        let install = gate.install().unwrap();
+        assert!(gate.relaunch().is_err());
+        drop(install);
+        assert!(gate.start_run().is_ok());
+    }
 
     #[test]
     fn starting_running_and_waiting_for_approval_block_installation() {

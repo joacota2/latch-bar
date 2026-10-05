@@ -221,8 +221,8 @@ fn command_directories_for(path: Vec<PathBuf>, home: Option<&Path>) -> Vec<PathB
             PathBuf::from("/usr/local/bin"),
         ]);
     }
-    directories.sort();
-    directories.dedup();
+    let mut seen = HashSet::new();
+    directories.retain(|directory| seen.insert(directory.clone()));
     directories
 }
 
@@ -273,22 +273,30 @@ fn parse_codex_version(stdout: &[u8]) -> Vec<u64> {
         .collect()
 }
 
-fn resolve_codex_executable(directories: &[PathBuf]) -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("CODEX_BIN")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-    {
-        return Some(configured);
+fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command {
+    let mut command = Command::new(executable);
+    // npm's Codex wrapper uses /usr/bin/env node. Use the sibling Node from
+    // this installation for both version probes and app-server launches.
+    let parent = executable
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let paths = parent.into_iter().map(Path::to_path_buf).chain(
+        directories
+            .iter()
+            .filter(|directory| Some(directory.as_path()) != parent)
+            .cloned(),
+    );
+    if let Ok(path) = env::join_paths(paths) {
+        command.env("PATH", path);
     }
-    let path = env::join_paths(directories).ok();
-    codex_candidates(directories, dirs::home_dir().as_deref())
+    command
+}
+
+fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
+    candidates
         .into_iter()
         .filter_map(|candidate| {
-            let mut probe = Command::new(&candidate);
-            if let Some(path) = path.as_ref() {
-                probe.env("PATH", path);
-            }
-            let output = probe
+            let output = command_for_executable(&candidate, directories)
                 .arg("--version")
                 .output()
                 .ok()
@@ -299,15 +307,24 @@ fn resolve_codex_executable(directories: &[PathBuf]) -> Option<PathBuf> {
         .map(|(_, candidate)| candidate)
 }
 
+fn resolve_codex_executable(directories: &[PathBuf]) -> Option<PathBuf> {
+    if let Some(configured) = env::var_os("CODEX_BIN")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    {
+        return Some(configured);
+    }
+    newest_codex_executable(
+        codex_candidates(directories, dirs::home_dir().as_deref()),
+        directories,
+    )
+}
+
 pub(crate) fn codex_command() -> Command {
     let directories = command_directories();
     let executable =
         resolve_codex_executable(&directories).unwrap_or_else(|| PathBuf::from("codex"));
-    let mut command = Command::new(executable);
-    if let Ok(path) = env::join_paths(directories) {
-        command.env("PATH", path);
-    }
-    command
+    command_for_executable(&executable, &directories)
 }
 
 pub(crate) fn codex_spawn_error(error: std::io::Error) -> String {
@@ -1090,6 +1107,68 @@ fn scan_codex_environment_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_inherited_path_precedence_when_adding_install_locations() {
+        let preferred = PathBuf::from("/preferred/bin");
+        let fallback = PathBuf::from("/another/bin");
+        let directories = command_directories_for(
+            vec![preferred.clone(), fallback.clone(), preferred.clone()],
+            None,
+        );
+        assert_eq!(&directories[..2], &[preferred.clone(), fallback]);
+        assert_eq!(
+            directories
+                .iter()
+                .filter(|path| **path == preferred)
+                .count(),
+            1
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probes_and_launches_nvm_codex_with_its_matching_node() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = env::temp_dir().join(format!("latch-nvm-runtime-{}", uuid::Uuid::new_v4()));
+        let old = root.join(".nvm/versions/node/v16.0.0/bin");
+        let new = root.join(".nvm/versions/node/v22.12.0/bin");
+        let write_executable = |path: &Path, content: &str| {
+            fs::write(path, content).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        for directory in [&old, &new] {
+            fs::create_dir_all(directory).unwrap();
+            write_executable(&directory.join("codex"), "#!/usr/bin/env node\n");
+        }
+        // Model a newer wrapper that the older Node cannot execute. The kernel
+        // actually resolves /usr/bin/env node through PATH in this test.
+        write_executable(&old.join("node"), "#!/bin/sh\nexit 1\n");
+        write_executable(&new.join("node"), "#!/bin/sh\nif [ \"$2\" = \"--version\" ]; then echo 'codex-cli 0.160.0'; else echo 'matching Node'; fi\n");
+        let directories = vec![old.clone(), new.clone()];
+        assert!(!Command::new(new.join("codex"))
+            .env("PATH", env::join_paths(&directories).unwrap())
+            .arg("--version")
+            .status()
+            .unwrap()
+            .success());
+
+        let resolved =
+            newest_codex_executable(vec![old.join("codex"), new.join("codex")], &directories)
+                .unwrap();
+        assert_eq!(resolved, new.join("codex"));
+        let output = command_for_executable(&resolved, &directories)
+            .arg("app-server")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "matching Node"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn finds_codex_bundled_with_desktop_apps_outside_path() {

@@ -418,8 +418,15 @@ pub fn open_privacy_settings(pane: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn relaunch_app(app: AppHandle) {
-    app.state::<crate::runtime::RuntimeManager>().shutdown();
+pub fn relaunch_app(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), String> {
+    if window.label() != "studio" {
+        return Err("Relaunch Latch Bar from Studio.".into());
+    }
+    let runtime = app.state::<crate::runtime::RuntimeManager>();
+    // Hold the same exclusive lease as an update through process exit. This
+    // prevents a new run or editor from opening between the check and shutdown.
+    let _permit = runtime.1.relaunch()?;
+    runtime.shutdown();
     app.restart();
 }
 

@@ -51,7 +51,7 @@ describe("Latch MVP", () => {
     render(<LatchProvider><App /></LatchProvider>);
     await user.click(screen.getByRole("button", { name: "Help" }));
     expect(screen.getByRole("dialog", { name: "Using Latch Bar" })).toBeInTheDocument();
-    expect(screen.getByText(/without a restart/i)).toBeInTheDocument();
+    expect(screen.getByText(/check whether a relaunch is needed/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Settings" })).toBeInTheDocument();
   });
 
