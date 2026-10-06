@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.7](https://github.com/joacota2/latch-bar/compare/v0.3.6...v0.3.7) (2026-10-06)
+
+
+### Bug Fixes
+
+* count each folder needing permission ([#31](https://github.com/joacota2/latch-bar/issues/31)) ([44f412f](https://github.com/joacota2/latch-bar/commit/44f412f315b6d2a5dd45b4302a8684344b6459d8))
+* remove context bar outer shadow ([#30](https://github.com/joacota2/latch-bar/issues/30)) ([3d18e1a](https://github.com/joacota2/latch-bar/commit/3d18e1a3260002d2083e260206311cb3b9338f1b))
+
 ## [0.3.6](https://github.com/joacota2/latch-bar/compare/v0.3.5...v0.3.6) (2026-10-05)
 
 
