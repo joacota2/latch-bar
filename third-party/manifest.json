@@ -6,7 +6,7 @@
   ],
   "input_sha256": {
     "package.json": "69b4d318ea1597066d23e8562e3f9da5c442a1e1ba76af28f11e058c40bed449",
-    "package-lock.json": "7180d354425db951b6be491af90b22e0deb9df78dbfce862793bb9dcb388a897",
+    "package-lock.json": "c6a5c3d8e6d705f078077cfd25c0b493dbcfa753e747ca8e98ff791822d33451",
     "src-tauri/Cargo.toml": "6aae37ae7c431b9b24b6c2a0c14f13567a3636d06e17b42d5fbf9c0faf21fb03",
     "src-tauri/Cargo.lock": "a0ca7c6b692d3d36805b941418d59c502a63f47c5e86b8cd892f62a8cedc41f9",
     "third-party/supplements.json": "d9fde90d0304507fcd4641d56fb9985711636d26ea8ad2690f7f80543c1a7af4",
