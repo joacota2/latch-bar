@@ -11,7 +11,7 @@
     "src-tauri/Cargo.lock": "a0ca7c6b692d3d36805b941418d59c502a63f47c5e86b8cd892f62a8cedc41f9",
     "third-party/supplements.json": "d9fde90d0304507fcd4641d56fb9985711636d26ea8ad2690f7f80543c1a7af4",
     "scripts/third-party.py": "358468e745550d1d68b05d40f3b9fa522e0844027368f177f52604a5f6534c90",
-    "src/styles.css": "ec5ea219268c357f0ea6b9f88cf2085e95d6f53f39c285317d90489ee3113353",
+    "src/styles.css": "e954199d4bc2c122fd2c6d38b5b119710269020ee8c01fec9b6fed709258e6c5",
     "third-party/provenance.json": "addad14f474af848f41cfcf0c2d9977e5f9387321ed906be7a8d40d7f7ecccbb",
     "vite.config.ts": "ab3e554279a065d75024b82c830d7dc3f4cda42c567fce24223890457386309f",
     "third-party/supplemental/0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9.txt": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
