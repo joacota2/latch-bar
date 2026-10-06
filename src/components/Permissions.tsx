@@ -53,7 +53,7 @@ export function PermissionsPanel({ onOpenCodex }: { onOpenCodex: () => void }) {
   const codexLabel = codexChecking ? "Checking" : runtimeError ? "Check failed" : !codexInstalled ? "Not found"
     : !codexConnected ? "Connection failed" : codexReady ? codexEnvironment?.account.signedIn ? "Signed in" : "Ready" : "Sign-in required";
   const permissionPending = !accessibility || missingFolders.length > 0;
-  const pending = [!accessibility || restart || (settings.contextBarEnabled && !tracking), missingFolders.length > 0, !codexReady].filter(Boolean).length;
+  const pending = missingFolders.length + [!accessibility || restart || (settings.contextBarEnabled && !tracking), !codexReady].filter(Boolean).length;
 
   const openSettings = (pane: "accessibility" | "files") => void openPrivacySettings(pane).catch(() => notify("Could not open System Settings"));
   const checkCodex = async () => {
