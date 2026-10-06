@@ -499,11 +499,11 @@ kbd { border: 1px solid #d8dcd4; border-bottom-width: 2px; border-radius: 5px; b
 .editor-footer > div { display: flex; gap: 7px; }
 
 /* Context bar */
-.context-wrap { position: fixed; z-index: 120; left: calc(50% + 116px); bottom: 24px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 13px 24px rgba(26,34,29,.22)); }
+.context-wrap { position: fixed; z-index: 120; left: calc(50% + 116px); bottom: 24px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
 .context-wrap.context-native { inset: 0; width: 100%; height: 100%; padding: 5px; transform: none; justify-content: flex-start; align-items: stretch; pointer-events: none; filter: none; }
 .context-wrap.context-native.state-idle:not(.picker-open) { padding-top: 33px; }
 .context-native .context-bar { width: 100%; max-width: none; pointer-events: auto; }
-.context-bar { min-height: 42px; max-width: calc(100vw - 300px); padding: 4px; background: #202923; color: #f3f6f2; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; display: flex; align-items: center; gap: 3px; box-shadow: 0 9px 20px rgba(18,25,20,.22), inset 0 1px 0 rgba(255,255,255,.05); animation: bar-in .22s cubic-bezier(.2,.8,.2,1) both; overflow: hidden; transition: height .24s cubic-bezier(.2,.8,.2,1), min-height .24s cubic-bezier(.2,.8,.2,1), border-radius .2s ease; }
+.context-bar { min-height: 42px; max-width: calc(100vw - 300px); padding: 4px; background: #202923; color: #f3f6f2; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; display: flex; align-items: center; gap: 3px; box-shadow: inset 0 1px 0 rgba(255,255,255,.05); animation: bar-in .22s cubic-bezier(.2,.8,.2,1) both; overflow: hidden; transition: height .24s cubic-bezier(.2,.8,.2,1), min-height .24s cubic-bezier(.2,.8,.2,1), border-radius .2s ease; }
 @keyframes bar-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 .context-state { width: 100%; min-width: 0; display: flex; align-items: center; gap: 3px; animation: context-state-in .18s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes context-state-in { from { opacity: 0; transform: translateY(3px); } }
