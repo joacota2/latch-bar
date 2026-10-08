@@ -71,14 +71,31 @@ fn reconcile(state: &mut Value) {
 impl Persistence {
     pub fn history_for_epoch(&self, epoch: &str) -> Result<bool, String> {
         let guard = self.0.lock().map_err(|_| "Local state unavailable")?;
-        let current = guard.as_ref().filter(|current| current.epoch == epoch).ok_or("This result belongs to a cleared session")?;
-        Ok(current.state.pointer("/settings/storeHistory").and_then(Value::as_bool).unwrap_or(true))
+        let current = guard
+            .as_ref()
+            .filter(|current| current.epoch == epoch)
+            .ok_or("This result belongs to a cleared session")?;
+        Ok(current
+            .state
+            .pointer("/settings/storeHistory")
+            .and_then(Value::as_bool)
+            .unwrap_or(true))
     }
 
     pub fn contains_result(&self, epoch: &str, id: &str) -> Result<bool, String> {
         let guard = self.0.lock().map_err(|_| "Local state unavailable")?;
-        let current = guard.as_ref().filter(|current| current.epoch == epoch).ok_or("This result belongs to a cleared session")?;
-        Ok(current.state.get("runs").and_then(Value::as_array).is_some_and(|runs| runs.iter().any(|run| run["id"] == id && run["status"] == "completed")))
+        let current = guard
+            .as_ref()
+            .filter(|current| current.epoch == epoch)
+            .ok_or("This result belongs to a cleared session")?;
+        Ok(current
+            .state
+            .get("runs")
+            .and_then(Value::as_array)
+            .is_some_and(|runs| {
+                runs.iter()
+                    .any(|run| run["id"] == id && run["status"] == "completed")
+            }))
     }
 
     fn read(&self, path: &Path, initial: Value) -> Result<Snapshot, String> {
@@ -177,7 +194,10 @@ pub fn write_latch_state(
         reset,
     )?;
     if result.accepted {
-        if reset { app.state::<crate::transient::TransientResults>().clear(&app); }
+        if reset {
+            app.state::<crate::transient::TransientResults>()
+                .clear(&app);
+        }
         if reset
             || result
                 .snapshot

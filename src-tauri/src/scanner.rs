@@ -300,7 +300,12 @@ fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) ->
 }
 fn resolve_codex(force: bool) -> Result<(crate::discovery::Executable, Vec<PathBuf>), String> {
     let directories = command_directories();
-    let executable = crate::discovery::resolve(codex_candidates(&directories, dirs::home_dir().as_deref()), &directories, env::var_os("CODEX_BIN").map(PathBuf::from), force)?;
+    let executable = crate::discovery::resolve(
+        codex_candidates(&directories, dirs::home_dir().as_deref()),
+        &directories,
+        env::var_os("CODEX_BIN").map(PathBuf::from),
+        force,
+    )?;
     Ok((executable, directories))
 }
 pub(crate) fn codex_command() -> Result<Command, String> {
@@ -329,8 +334,19 @@ pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Result<Command,
 pub async fn codex_status(force_refresh: Option<bool>) -> Result<RuntimeStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (executable, _) = resolve_codex(force_refresh.unwrap_or(false))?;
-        Ok(RuntimeStatus { available: true, version: executable.version.trim_start_matches("codex-cli ").to_string(), codex_home: codex_home().to_string_lossy().into_owned(), mode: "native".into(), path: Some(executable.path.to_string_lossy().into_owned()) })
-    }).await.map_err(|error| error.to_string())?
+        Ok(RuntimeStatus {
+            available: true,
+            version: executable
+                .version
+                .trim_start_matches("codex-cli ")
+                .to_string(),
+            codex_home: codex_home().to_string_lossy().into_owned(),
+            mode: "native".into(),
+            path: Some(executable.path.to_string_lossy().into_owned()),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 pub(crate) fn mcp_config_overrides(
@@ -757,9 +773,18 @@ fn parse_skills(response: Option<&Value>) -> Vec<SkillSummary> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            let path = fs::canonicalize(&path).map(|value| value.to_string_lossy().into_owned()).unwrap_or(path);
-            let source = skill.get("scope").and_then(Value::as_str).unwrap_or("user").to_string();
-            let plugin_id = skill.get("pluginId").and_then(Value::as_str).map(str::to_string);
+            let path = fs::canonicalize(&path)
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or(path);
+            let source = skill
+                .get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or("user")
+                .to_string();
+            let plugin_id = skill
+                .get("pluginId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             let id = format!("skill:v1:{}", json!([source, path, plugin_id]));
             let validation_errors = errors
                 .iter()
@@ -949,7 +974,9 @@ pub async fn scan_codex_environment(
     force_refresh: Option<bool>,
 ) -> Result<EnvironmentSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        if force_refresh.unwrap_or(false) { resolve_codex(true)?; }
+        if force_refresh.unwrap_or(false) {
+            resolve_codex(true)?;
+        }
         scan_codex_environment_blocking(workspace_path, profile)
     })
     .await
@@ -965,7 +992,15 @@ fn scan_codex_environment_blocking(
             return Err("Workspace must be an existing directory".into());
         }
     }
-    let cwd = Some(match workspace_path { Some(path) => fs::canonicalize(expand_user_path(path)).map_err(|error| error.to_string())?.to_string_lossy().into_owned(), None => crate::runtime::projectless_path()?.to_string_lossy().into_owned() });
+    let cwd = Some(match workspace_path {
+        Some(path) => fs::canonicalize(expand_user_path(path))
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .into_owned(),
+        None => crate::runtime::projectless_path()?
+            .to_string_lossy()
+            .into_owned(),
+    });
     let profile = profile
         .as_deref()
         .filter(|profile| !profile.is_empty() && *profile != "default");
@@ -1080,8 +1115,11 @@ mod tests {
             {"name":"Review", "path":"/a/SKILL.md", "scope":"user"}
         ]}]});
         let skills = parse_skills(Some(&response));
-        assert_eq!(skills.len(), 2); assert_ne!(skills[0].id, skills[1].id);
-        assert!(skills.iter().all(|skill| skill.id.starts_with("skill:v1:") && skill.legacy_id == "review"));
+        assert_eq!(skills.len(), 2);
+        assert_ne!(skills[0].id, skills[1].id);
+        assert!(skills
+            .iter()
+            .all(|skill| skill.id.starts_with("skill:v1:") && skill.legacy_id == "review"));
     }
 
     #[test]

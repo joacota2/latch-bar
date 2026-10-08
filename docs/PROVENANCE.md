@@ -6,12 +6,12 @@ Reviewed on 2026-10-03 for the Apache 2.0 licensing PR.
 
 Joaquin Gomez confirmed on 2026-10-03 that the original Latch Bar code, logo/app icons, and README images were all created by him. This records the maintainer's ownership confirmation; Git authorship or a checksum alone is not proof of copyright ownership. No separately owned first-party contributions or employer/client claims were identified in that confirmation.
 
-| Material | Evidence and scope |
-| --- | --- |
-| Application code, tests, configuration, and project documentation | Maintainer confirmation above. Existing author names `Joaquin Gomez` and `joacota2` are consistent with the maintainer's Git identity. Dependencies are treated separately below. |
-| `public/latch-icon.svg`, `src-tauri/icons/latch.svg`, and generated icon variants | Maintainer confirmation; SVGs entered repository history in `b41594b`. The SVGs contain the project's geometric logo, without external image references. |
-| `docs/media/latch-bar-hero.png` | Maintainer confirmation; introduction in `be528fa`, later wording update in `cfbbae9`. |
-| `docs/media/latch-bar-studio.jpg` and `latch-bar-conversation.jpg` | Maintainer confirmation; checked-in project UI imagery. |
+| Material                                                                          | Evidence and scope                                                                                                                                                                |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Application code, tests, configuration, and project documentation                 | Maintainer confirmation above. Existing author names `Joaquin Gomez` and `joacota2` are consistent with the maintainer's Git identity. Dependencies are treated separately below. |
+| `public/latch-icon.svg`, `src-tauri/icons/latch.svg`, and generated icon variants | Maintainer confirmation; SVGs entered repository history in `b41594b`. The SVGs contain the project's geometric logo, without external image references.                          |
+| `docs/media/latch-bar-hero.png`                                                   | Maintainer confirmation; introduction in `be528fa`, later wording update in `cfbbae9`.                                                                                            |
+| `docs/media/latch-bar-studio.jpg` and `latch-bar-conversation.jpg`                | Maintainer confirmation; checked-in project UI imagery.                                                                                                                           |
 
 `third-party/provenance.json` records hashes of the reviewed first-party assets. CI rejects added, removed, or changed assets until this record is reviewed and updated. For a new asset, record its creator/source and permission before updating the hash; regeneration of dependency notices does not approve asset ownership.
 

@@ -1246,7 +1246,8 @@ impl MacOsAdapter {
         if frontmost_process_id() != target.process_id
             || !unsafe { target_has_keyboard_focus(editable, target.process_id) }
             || !unsafe { selection_range_matches(target, selection_element) }
-            || unsafe { selected_text(selection_element) }.as_deref() != Some(target.selected_text.as_str())
+            || unsafe { selected_text(selection_element) }.as_deref()
+                != Some(target.selected_text.as_str())
             || NSPasteboard::generalPasteboard().changeCount() != change_count
         {
             let _ = snapshot.restore_if_unchanged(change_count);
@@ -1370,7 +1371,8 @@ impl PlatformAdapter for MacOsAdapter {
                         && target.process_id == process_id
                         && target.selection_element.is_some_and(|element| {
                             selected_text(element).as_deref() == Some(target.selected_text.as_str())
-                                && (target.range.is_none() || selection_range_matches(target, element))
+                                && (target.range.is_none()
+                                    || selection_range_matches(target, element))
                         })
                 });
             if unchanged {
@@ -1463,7 +1465,9 @@ impl PlatformAdapter for MacOsAdapter {
                         return Ok(None);
                     }
                 };
-                let range = fallback_target.as_ref().and_then(|target| copied_range(target.0, "AXSelectedTextRange"));
+                let range = fallback_target
+                    .as_ref()
+                    .and_then(|target| copied_range(target.0, "AXSelectedTextRange"));
                 let replacement_capability = if fallback_target.is_some() && range.is_some() {
                     ReplacementCapability::ClipboardPaste
                 } else {
@@ -1578,7 +1582,11 @@ impl PlatformAdapter for MacOsAdapter {
                     bounds
                 }
             };
-            let replacement_capability = if range.is_some() { replacement_capability(focused.0) } else { ReplacementCapability::None };
+            let replacement_capability = if range.is_some() {
+                replacement_capability(focused.0)
+            } else {
+                ReplacementCapability::None
+            };
             let paste_element = (replacement_capability != ReplacementCapability::None)
                 .then(|| confidently_editable_target(focused.0))
                 .flatten()
@@ -1650,7 +1658,10 @@ impl PlatformAdapter for MacOsAdapter {
                         && pid == target.process_id
                         && selected_text(element).as_deref() == Some(target.selected_text.as_str())
                         && selection_range_matches(target, element)
-                        && target_has_keyboard_focus(target.paste_element.unwrap_or(element), target.process_id)
+                        && target_has_keyboard_focus(
+                            target.paste_element.unwrap_or(element),
+                            target.process_id,
+                        )
                         && attribute_is_settable(element, "AXSelectedText")
                 };
                 if !current {
@@ -1659,11 +1670,18 @@ impl PlatformAdapter for MacOsAdapter {
                 let before = unsafe { copied_string(element, "AXValue") };
                 let expected = unsafe { expected_value(element, target.range, text) };
                 let replacement = CFString::new(text);
-                if frontmost_process_id() != target.process_id || !unsafe {
-                    target_has_keyboard_focus(target.paste_element.unwrap_or(element), target.process_id)
-                        && selected_text(element).as_deref() == Some(target.selected_text.as_str())
-                        && selection_range_matches(target, element)
-                } { return Err("The original editable selection changed before replacement".into()); }
+                if frontmost_process_id() != target.process_id
+                    || !unsafe {
+                        target_has_keyboard_focus(
+                            target.paste_element.unwrap_or(element),
+                            target.process_id,
+                        ) && selected_text(element).as_deref()
+                            == Some(target.selected_text.as_str())
+                            && selection_range_matches(target, element)
+                    }
+                {
+                    return Err("The original editable selection changed before replacement".into());
+                }
                 let replaced = unsafe {
                     AXUIElementSetAttributeValue(
                         element,
@@ -1686,12 +1704,16 @@ impl PlatformAdapter for MacOsAdapter {
                     // Fall back only after a rejected write with an unchanged value and
                     // selection. Never paste again after an ambiguous successful write.
                     self.paste_to_target(text, target)
-                } else if before.is_some() && unsafe { copied_string(element, "AXValue") } == before {
+                } else if before.is_some() && unsafe { copied_string(element, "AXValue") } == before
+                {
                     Err("The source application rejected replacement. Copy the answer and paste it manually.".into())
                 } else {
                     // A rejected Accessibility call can still have changed the editor.
                     // Consume this ambiguous dispatch so no automatic retry can write twice.
-                    Ok(ReplacementResult { method: "accessibility", verified: false })
+                    Ok(ReplacementResult {
+                        method: "accessibility",
+                        verified: false,
+                    })
                 }
             }
             ReplacementCapability::ClipboardPaste => self.paste_to_target(text, target),
@@ -1714,8 +1736,14 @@ mod tests {
 
     #[test]
     fn replacement_requires_the_original_position_even_for_repeated_text() {
-        let first = CFRange { location: 0, length: 4 };
-        let second = CFRange { location: 10, length: 4 };
+        let first = CFRange {
+            location: 0,
+            length: 4,
+        };
+        let second = CFRange {
+            location: 10,
+            length: 4,
+        };
         assert!(!ranges_match(None, None));
         assert!(!ranges_match(Some(first), None));
         assert!(!ranges_match(Some(first), Some(second)));

@@ -1,15 +1,15 @@
-mod runtime_events;
-mod discovery;
-mod transient;
-mod approvals;
 mod activity;
 mod app_server;
+mod approvals;
+mod discovery;
 mod folder_access;
 mod persistence;
 mod platform;
 mod public_release;
 mod runtime;
+mod runtime_events;
 mod scanner;
+mod transient;
 mod updates;
 
 use tauri::Manager;

@@ -157,7 +157,10 @@ export function normalizePersisted(input: unknown) {
         : 0,
       DEFAULT_AGENTS_VERSION,
     ),
-    agents: agents?.flatMap((agent) => { const result = persistedAgentSchema.safeParse(agent); return result.success ? [result.data] : []; }),
+    agents: agents?.flatMap((agent) => {
+      const result = persistedAgentSchema.safeParse(agent);
+      return result.success ? [result.data] : [];
+    }),
     settings: settings ? validSettings(settings) : undefined,
     savedWorkspaces: Array.isArray(parsed.savedWorkspaces)
       ? parsed.savedWorkspaces.flatMap((item) => {

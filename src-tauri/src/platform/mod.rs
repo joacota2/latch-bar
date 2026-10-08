@@ -298,11 +298,8 @@ fn context_panel_class() -> &'static objc2::runtime::AnyClass {
 
     static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
     CLASS.get_or_init(|| {
-        let mut builder = ClassBuilder::new(
-            c"LatchContextPanel",
-            class!(NSPanel),
-        )
-        .expect("LatchContextPanel must only be registered once");
+        let mut builder = ClassBuilder::new(c"LatchContextPanel", class!(NSPanel))
+            .expect("LatchContextPanel must only be registered once");
         unsafe {
             builder.add_method(
                 sel!(canBecomeMainWindow),
@@ -313,8 +310,7 @@ fn context_panel_class() -> &'static objc2::runtime::AnyClass {
                 context_panel_is_focusable as extern "C" fn(_, _) -> _,
             );
         }
-        builder
-            .add_ivar::<Bool>(c"focusable");
+        builder.add_ivar::<Bool>(c"focusable");
         builder.register()
     })
 }
@@ -346,8 +342,7 @@ fn panelize_context_bar(pointer: *mut std::ffi::c_void) -> Result<(), String> {
             panel_class.instance_size()
         ));
     }
-    let focusable_name =
-        c"focusable";
+    let focusable_name = c"focusable";
     let current_focusable = current_class
         .instance_variable(focusable_name)
         .ok_or("The native Context Bar class has no focusable state")?;

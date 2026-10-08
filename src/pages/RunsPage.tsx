@@ -2,7 +2,18 @@ import { Modal } from "../components/Modal";
 import { useEffect } from "react";
 import { useTransientResult } from "../store/TransientResultStore";
 import { acknowledgeResult, dismissResult } from "../services/transientResults";
-import { ArrowUpRight, Check, ChevronRight, CircleAlert, Clock3, Copy, Filter, LoaderCircle, ShieldAlert, Square } from "lucide-react";
+import {
+  ArrowUpRight,
+  Check,
+  ChevronRight,
+  CircleAlert,
+  Clock3,
+  Copy,
+  Filter,
+  LoaderCircle,
+  ShieldAlert,
+  Square,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { AgentGlyph, SectionLabel } from "../components/ui";
 import type { Run, RunStatus } from "../domain";
@@ -17,76 +28,322 @@ const statusMeta: Record<RunStatus, { label: string; icon: typeof Check }> = {
   cancelled: { label: "Cancelled", icon: Square },
 };
 
-function RunRow({ run, onSelect, onOpenCodex }: { run: Run; onSelect: () => void; onOpenCodex: () => void }) {
+function RunRow({
+  run,
+  onSelect,
+  onOpenCodex,
+}: {
+  run: Run;
+  onSelect: () => void;
+  onOpenCodex: () => void;
+}) {
   const meta = statusMeta[run.status];
   const Icon = meta.icon;
-  return <div className="run-row">
-    <button className="run-row-select" onClick={onSelect}>
-      <AgentGlyph agent={{ icon: run.agentIcon, accent: run.agentId === "staff-engineer" ? "purple" : run.agentId === "improve-writing" ? "lime" : "blue" }} />
-      <div className="run-main"><strong>{run.agentName}</strong><span><b className="app-token">{run.sourceIcon}</b>{run.sourceApplication}{run.workspacePath && <> · {run.workspacePath.split("/").pop()}</>}</span></div>
-      <div className="run-activity"><span className={`run-status ${run.status}`}><Icon size={13} />{meta.label}</span><small>{run.activity}</small></div>
-      <div className="run-time"><span>{run.startedAt}</span><small>{run.duration ?? run.model}</small></div>
-      <ChevronRight size={16} />
-    </button>
-    <button className="run-codex-link" disabled={!run.threadId} onClick={onOpenCodex} aria-label={run.threadId ? `Open ${run.agentName} conversation in Codex` : `Codex conversation unavailable for ${run.agentName}`} title={run.threadId ? "Open conversation in Codex" : "Thread ID unavailable"}>
-      <ArrowUpRight size={15} />
-    </button>
-  </div>;
+  return (
+    <div className="run-row">
+      <button className="run-row-select" onClick={onSelect}>
+        <AgentGlyph
+          agent={{
+            icon: run.agentIcon,
+            accent:
+              run.agentId === "staff-engineer"
+                ? "purple"
+                : run.agentId === "improve-writing"
+                  ? "lime"
+                  : "blue",
+          }}
+        />
+        <div className="run-main">
+          <strong>{run.agentName}</strong>
+          <span>
+            <b className="app-token">{run.sourceIcon}</b>
+            {run.sourceApplication}
+            {run.workspacePath && <> · {run.workspacePath.split("/").pop()}</>}
+          </span>
+        </div>
+        <div className="run-activity">
+          <span className={`run-status ${run.status}`}>
+            <Icon size={13} />
+            {meta.label}
+          </span>
+          <small>{run.activity}</small>
+        </div>
+        <div className="run-time">
+          <span>{run.startedAt}</span>
+          <small>{run.duration ?? run.model}</small>
+        </div>
+        <ChevronRight size={16} />
+      </button>
+      <button
+        className="run-codex-link"
+        disabled={!run.threadId}
+        onClick={onOpenCodex}
+        aria-label={
+          run.threadId
+            ? `Open ${run.agentName} conversation in Codex`
+            : `Codex conversation unavailable for ${run.agentName}`
+        }
+        title={
+          run.threadId ? "Open conversation in Codex" : "Thread ID unavailable"
+        }
+      >
+        <ArrowUpRight size={15} />
+      </button>
+    </div>
+  );
 }
 
 export function RunsPage() {
   const { runs: savedRuns, notify, settings } = useLatch();
   const temporary = useTransientResult();
-  const runs = useMemo(() => temporary ? [temporary.run, ...savedRuns.filter((run) => run.id !== temporary.run.id)] : savedRuns, [temporary, savedRuns]);
+  const runs = useMemo(
+    () =>
+      temporary
+        ? [
+            temporary.run,
+            ...savedRuns.filter((run) => run.id !== temporary.run.id),
+          ]
+        : savedRuns,
+    [temporary, savedRuns],
+  );
   const [filter, setFilter] = useState<"all" | RunStatus>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  useEffect(() => { if (temporary) setSelectedId(temporary.run.id); }, [temporary]);
+  useEffect(() => {
+    if (temporary) setSelectedId(temporary.run.id);
+  }, [temporary]);
   const selected = runs.find((run) => run.id === selectedId) ?? null;
   useEffect(() => {
-    if (temporary && selected?.id === temporary.run.id && !temporary.acknowledged) void acknowledgeResult(temporary).catch(() => notify("Could not acknowledge the result. It remains available in the Context Bar."));
+    if (
+      temporary &&
+      selected?.id === temporary.run.id &&
+      !temporary.acknowledged
+    )
+      void acknowledgeResult(temporary).catch(() =>
+        notify(
+          "Could not acknowledge the result. It remains available in the Context Bar.",
+        ),
+      );
   }, [notify, selected?.id, temporary]);
   const closeDetail = () => {
     setSelectedId(null);
-    if (temporary && selected?.id === temporary.run.id) void dismissResult(temporary).catch(() => notify("Could not dismiss the temporary result"));
+    if (temporary && selected?.id === temporary.run.id)
+      void dismissResult(temporary).catch(() =>
+        notify("Could not dismiss the temporary result"),
+      );
   };
-  const visible = useMemo(() => filter === "all" ? runs : runs.filter((run) => run.status === filter), [filter, runs]);
-  const active = visible.filter((run) => run.status === "running" || run.status === "approval");
-  const history = visible.filter((run) => run.status !== "running" && run.status !== "approval");
-  const completedDurations = runs.filter((run) => run.status === "completed" && run.duration).map((run) => Number.parseFloat(run.duration!)).filter(Number.isFinite);
-  const averageDuration = completedDurations.length ? `${(completedDurations.reduce((sum, value) => sum + value, 0) / completedDurations.length).toFixed(1)}s` : "—";
+  const visible = useMemo(
+    () =>
+      filter === "all" ? runs : runs.filter((run) => run.status === filter),
+    [filter, runs],
+  );
+  const active = visible.filter(
+    (run) => run.status === "running" || run.status === "approval",
+  );
+  const history = visible.filter(
+    (run) => run.status !== "running" && run.status !== "approval",
+  );
+  const completedDurations = runs
+    .filter((run) => run.status === "completed" && run.duration)
+    .map((run) => Number.parseFloat(run.duration!))
+    .filter(Number.isFinite);
+  const averageDuration = completedDurations.length
+    ? `${(completedDurations.reduce((sum, value) => sum + value, 0) / completedDurations.length).toFixed(1)}s`
+    : "—";
 
   const openInCodex = (run: Run) => {
     if (!run.threadId) return;
-    void openCodexThread(run.threadId).catch(() => notify("Could not open this conversation in Codex"));
+    void openCodexThread(run.threadId).catch(() =>
+      notify("Could not open this conversation in Codex"),
+    );
   };
 
-  const row = (run: Run) => <RunRow key={run.id} run={run} onSelect={() => setSelectedId(run.id)} onOpenCodex={() => openInCodex(run)} />;
+  const row = (run: Run) => (
+    <RunRow
+      key={run.id}
+      run={run}
+      onSelect={() => setSelectedId(run.id)}
+      onOpenCodex={() => openInCodex(run)}
+    />
+  );
 
-  return <div className="page runs-page">
-    <div className="runs-summary">
-      <div><span className="metric-icon running"><LoaderCircle size={18} /></span><strong>{runs.filter((run) => run.status === "running").length}</strong><small>Running now</small></div>
-      <div><span className="metric-icon approval"><ShieldAlert size={18} /></span><strong>{runs.filter((run) => run.status === "approval").length}</strong><small>Needs approval</small></div>
-      <div><span className="metric-icon complete"><Check size={18} /></span><strong>{runs.filter((run) => run.status === "completed").length}</strong><small>Completed</small></div>
-      <div><span className="metric-icon time"><Clock3 size={18} /></span><strong>{averageDuration}</strong><small>Average duration</small></div>
+  return (
+    <div className="page runs-page">
+      <div className="runs-summary">
+        <div>
+          <span className="metric-icon running">
+            <LoaderCircle size={18} />
+          </span>
+          <strong>
+            {runs.filter((run) => run.status === "running").length}
+          </strong>
+          <small>Running now</small>
+        </div>
+        <div>
+          <span className="metric-icon approval">
+            <ShieldAlert size={18} />
+          </span>
+          <strong>
+            {runs.filter((run) => run.status === "approval").length}
+          </strong>
+          <small>Needs approval</small>
+        </div>
+        <div>
+          <span className="metric-icon complete">
+            <Check size={18} />
+          </span>
+          <strong>
+            {runs.filter((run) => run.status === "completed").length}
+          </strong>
+          <small>Completed</small>
+        </div>
+        <div>
+          <span className="metric-icon time">
+            <Clock3 size={18} />
+          </span>
+          <strong>{averageDuration}</strong>
+          <small>Average duration</small>
+        </div>
+      </div>
+      <div className="filter-bar">
+        <Filter size={15} />
+        <span>Show</span>
+        {(["all", "running", "approval", "completed", "failed"] as const).map(
+          (item) => (
+            <button
+              className={filter === item ? "active" : ""}
+              onClick={() => setFilter(item)}
+              key={item}
+            >
+              {item === "approval"
+                ? "Needs approval"
+                : item[0].toUpperCase() + item.slice(1)}
+            </button>
+          ),
+        )}
+      </div>
+      {active.length > 0 && (
+        <section className="content-section">
+          <SectionLabel>In progress</SectionLabel>
+          <div className="runs-list">{active.map(row)}</div>
+        </section>
+      )}
+      <section className="content-section">
+        <SectionLabel>History</SectionLabel>
+        <div className="runs-list">
+          {history.map(row)}
+          {history.length === 0 && (
+            <div className="info-banner">
+              <div>
+                <strong>No native runs yet</strong>
+                <p>
+                  Select text in another application and choose an agent from
+                  the Context Bar.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+      {selected && (
+        <Modal
+          className="detail-scrim"
+          label="Run details"
+          onDismiss={closeDetail}
+        >
+          <aside className="run-detail">
+            <div className="drawer-header">
+              <div>
+                <span className={`run-status ${selected.status}`}>
+                  {statusMeta[selected.status].label}
+                </span>
+                <h2>{selected.agentName}</h2>
+                <p>
+                  {selected.sourceApplication} · {selected.startedAt}
+                </p>
+              </div>
+              {selected.threadId && (
+                <button
+                  className="drawer-codex-link"
+                  onClick={() => openInCodex(selected)}
+                >
+                  <ArrowUpRight size={14} /> Open in Codex
+                </button>
+              )}
+              <button
+                className="drawer-close"
+                aria-label="Close run details"
+                onClick={closeDetail}
+              >
+                ×
+              </button>
+            </div>
+            <div className="run-detail-body">
+              {temporary?.run.id === selected.id &&
+                (!temporary.persisted || !settings.storeHistory) && (
+                  <p role="status">Temporary result — not saved to history</p>
+                )}
+              <div className="detail-grid">
+                <div>
+                  <span>Model</span>
+                  <strong>{selected.model}</strong>
+                </div>
+                <div>
+                  <span>Sandbox</span>
+                  <strong>{selected.sandbox}</strong>
+                </div>
+                <div>
+                  <span>Thread</span>
+                  <strong>{selected.threadId ?? "—"}</strong>
+                </div>
+                <div>
+                  <span>Duration</span>
+                  <strong>{selected.duration ?? "In progress"}</strong>
+                </div>
+              </div>
+              {selected.status === "approval" && (
+                <div className="approval-card">
+                  <ShieldAlert size={20} />
+                  <div>
+                    <h3>Your agent is waiting for permission</h3>
+                    <p>
+                      Respond from the Context Bar beside the original
+                      selection.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {selected.finalResponse && (
+                <div className="result-card">
+                  <div>
+                    <h3>Result</h3>
+                    <button
+                      onClick={() => {
+                        void navigator.clipboard
+                          .writeText(selected.finalResponse!)
+                          .then(() => notify("Result copied"))
+                          .catch(() => notify("Could not copy the result"));
+                      }}
+                    >
+                      <Copy size={14} /> Copy
+                    </button>
+                  </div>
+                  <p>{selected.finalResponse}</p>
+                </div>
+              )}
+              <div className="event-log">
+                <h3>Activity</h3>
+                <div>
+                  <i
+                    className={selected.status === "failed" ? "error" : "done"}
+                  />
+                  <span>{selected.activity}</span>
+                  <small>{selected.duration ?? "now"}</small>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </Modal>
+      )}
     </div>
-    <div className="filter-bar"><Filter size={15} /><span>Show</span>{(["all", "running", "approval", "completed", "failed"] as const).map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item === "approval" ? "Needs approval" : item[0].toUpperCase() + item.slice(1)}</button>)}</div>
-    {active.length > 0 && <section className="content-section"><SectionLabel>In progress</SectionLabel><div className="runs-list">{active.map(row)}</div></section>}
-    <section className="content-section"><SectionLabel>History</SectionLabel><div className="runs-list">{history.map(row)}{history.length === 0 && <div className="info-banner"><div><strong>No native runs yet</strong><p>Select text in another application and choose an agent from the Context Bar.</p></div></div>}</div></section>
-    {selected && <Modal className="detail-scrim" label="Run details" onDismiss={closeDetail}>
-      <aside className="run-detail">
-        <div className="drawer-header">
-          <div><span className={`run-status ${selected.status}`}>{statusMeta[selected.status].label}</span><h2>{selected.agentName}</h2><p>{selected.sourceApplication} · {selected.startedAt}</p></div>
-          {selected.threadId && <button className="drawer-codex-link" onClick={() => openInCodex(selected)}><ArrowUpRight size={14} /> Open in Codex</button>}
-          <button className="drawer-close" aria-label="Close run details" onClick={closeDetail}>×</button>
-        </div>
-        <div className="run-detail-body">
-          {temporary?.run.id === selected.id && (!temporary.persisted || !settings.storeHistory) && <p role="status">Temporary result — not saved to history</p>}
-          <div className="detail-grid"><div><span>Model</span><strong>{selected.model}</strong></div><div><span>Sandbox</span><strong>{selected.sandbox}</strong></div><div><span>Thread</span><strong>{selected.threadId ?? "—"}</strong></div><div><span>Duration</span><strong>{selected.duration ?? "In progress"}</strong></div></div>
-          {selected.status === "approval" && <div className="approval-card"><ShieldAlert size={20} /><div><h3>Your agent is waiting for permission</h3><p>Respond from the Context Bar beside the original selection.</p></div></div>}
-          {selected.finalResponse && <div className="result-card"><div><h3>Result</h3><button onClick={() => { void navigator.clipboard.writeText(selected.finalResponse!).then(() => notify("Result copied")).catch(() => notify("Could not copy the result")); }}><Copy size={14} /> Copy</button></div><p>{selected.finalResponse}</p></div>}
-          <div className="event-log"><h3>Activity</h3><div><i className={selected.status === "failed" ? "error" : "done"} /><span>{selected.activity}</span><small>{selected.duration ?? "now"}</small></div></div>
-        </div>
-      </aside>
-    </Modal>}
-  </div>;
+  );
 }

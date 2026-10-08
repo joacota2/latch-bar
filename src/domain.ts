@@ -1,9 +1,12 @@
-export type NavKey = "agents" | "runs" | "mcps" | "skills" | "workspaces" | "settings";
+export type NavKey =
+  "agents" | "runs" | "mcps" | "skills" | "workspaces" | "settings";
 
 export type SandboxMode = "read-only" | "workspace-write" | "full-access";
 export type ApprovalPolicy = "always-ask" | "when-needed" | "never";
-export type WorkspaceMode = "none" | "active-application" | "ask-each-time" | "fixed" | "recent-project";
-export type RunStatus = "running" | "approval" | "completed" | "failed" | "cancelled";
+export type WorkspaceMode =
+  "none" | "active-application" | "ask-each-time" | "fixed" | "recent-project";
+export type RunStatus =
+  "running" | "approval" | "completed" | "failed" | "cancelled";
 
 export interface CodexReasoningEffort {
   id: string;
@@ -149,7 +152,15 @@ export interface McpServer {
   transport: "stdio" | "http" | "managed";
   enabled: boolean;
   authentication: "none" | "environment" | "bearer" | "oauth" | "unknown";
-  source: "effective" | "user" | "profile" | "project" | "system" | "enterprise" | "session" | "managed";
+  source:
+    | "effective"
+    | "user"
+    | "profile"
+    | "project"
+    | "system"
+    | "enterprise"
+    | "session"
+    | "managed";
   health: "unknown" | "connected" | "error" | "disabled";
   detail: string;
   configurable: boolean;

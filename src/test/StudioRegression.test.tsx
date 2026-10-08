@@ -21,10 +21,12 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => {}),
-  listen: vi.fn(async (name: string, cb: (event: { payload: unknown }) => void) => {
-    mocks.listeners.set(name, cb);
-    return () => mocks.listeners.delete(name);
-  }),
+  listen: vi.fn(
+    async (name: string, cb: (event: { payload: unknown }) => void) => {
+      mocks.listeners.set(name, cb);
+      return () => mocks.listeners.delete(name);
+    },
+  ),
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: mocks.reveal,
@@ -264,10 +266,18 @@ describe("Studio functional regressions", () => {
   it("keeps Settings focused on implemented features", async () => {
     await mount();
     await click("Settings");
-    expect(screen.queryByRole("button", { name: "Advanced" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Launch at login" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Show menu bar icon" })).not.toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Enable Context Bar" })).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "Advanced" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Launch at login" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Show menu bar icon" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: "Enable Context Bar" }),
+    ).toBeEnabled();
     await click("Codex");
     expect(screen.getByRole("button", { name: "Check status" })).toBeEnabled();
   });

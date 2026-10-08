@@ -1,10 +1,30 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { getPlatformStatus, isTauri, relaunchApp, repairAccessibilityPermission, requestAccessibilityPermission, requestFolderAccess, type FolderAccess, type PlatformStatus, type ProtectedFolder } from "../services/runtime";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  getPlatformStatus,
+  isTauri,
+  relaunchApp,
+  repairAccessibilityPermission,
+  requestAccessibilityPermission,
+  requestFolderAccess,
+  type FolderAccess,
+  type PlatformStatus,
+  type ProtectedFolder,
+} from "../services/runtime";
 import { useLatch } from "./LatchStore";
 
 const FOLDER_ACCESS_KEY = "latch-folder-access";
 const POLL_INTERVAL_MS = 1500;
-const protectedFolderPattern = /^(?:\/Users\/[^/]+|~)\/(Desktop|Documents|Downloads)(\/|$)/;
+const protectedFolderPattern =
+  /^(?:\/Users\/[^/]+|~)\/(Desktop|Documents|Downloads)(\/|$)/;
 
 export type FolderAccessState = Partial<Record<ProtectedFolder, FolderAccess>>;
 
@@ -27,9 +47,19 @@ interface Permissions {
 }
 
 const PermissionContext = createContext<Permissions>({
-  platform: null, folders: ["documents"], folderAccess: {}, needsSetup: false, busy: false, viewRequest: 0,
-  refresh: async () => null, requestAccessibility: async () => {}, requestFolders: async () => {}, setUp: async () => {},
-  repairAccessibility: async () => {}, relaunch: async () => {}, view: () => {},
+  platform: null,
+  folders: ["documents"],
+  folderAccess: {},
+  needsSetup: false,
+  busy: false,
+  viewRequest: 0,
+  refresh: async () => null,
+  requestAccessibility: async () => {},
+  requestFolders: async () => {},
+  setUp: async () => {},
+  repairAccessibility: async () => {},
+  relaunch: async () => {},
+  view: () => {},
 });
 
 function readFolderAccess(): FolderAccessState {
@@ -42,17 +72,32 @@ function readFolderAccess(): FolderAccessState {
 }
 
 function writeFolderAccess(value: FolderAccessState) {
-  try { localStorage.setItem(FOLDER_ACCESS_KEY, JSON.stringify(value)); } catch { /* Folder status is rechecked on the next request. */ }
+  try {
+    localStorage.setItem(FOLDER_ACCESS_KEY, JSON.stringify(value));
+  } catch {
+    /* Folder status is rechecked on the next request. */
+  }
 }
 
 export function needsPermissionSetup(platform: PlatformStatus | null) {
-  return Boolean(platform?.supported && (!platform.accessibilityTrusted || platform.restartRecommended));
+  return Boolean(
+    platform?.supported &&
+    (!platform.accessibilityTrusted || platform.restartRecommended),
+  );
 }
 
 export function PermissionProvider({ children }: { children: ReactNode }) {
-  const { settings, workspaces, agents, selectedAgentId, setActiveNav, notify } = useLatch();
+  const {
+    settings,
+    workspaces,
+    agents,
+    selectedAgentId,
+    setActiveNav,
+    notify,
+  } = useLatch();
   const [platform, setPlatform] = useState<PlatformStatus | null>(null);
-  const [folderAccess, setFolderAccess] = useState<FolderAccessState>(readFolderAccess);
+  const [folderAccess, setFolderAccess] =
+    useState<FolderAccessState>(readFolderAccess);
   const [busy, setBusy] = useState(false);
   const [viewRequest, setViewRequest] = useState(0);
   const operation = useRef(false);
@@ -61,9 +106,12 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
 
   const folders = useMemo(() => {
     const needed = new Set<ProtectedFolder>(["documents"]);
-    const paths = [...workspaces.map((workspace) => workspace.path), ...agents
-      .filter((agent) => agent.workspaceMode === "fixed")
-      .map((agent) => agent.fixedWorkspacePath ?? "")];
+    const paths = [
+      ...workspaces.map((workspace) => workspace.path),
+      ...agents
+        .filter((agent) => agent.workspaceMode === "fixed")
+        .map((agent) => agent.fixedWorkspacePath ?? ""),
+    ];
     for (const path of paths) {
       const match = protectedFolderPattern.exec(path.trim());
       if (match) needed.add(match[1].toLowerCase() as ProtectedFolder);
@@ -94,30 +142,49 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     // Recheck only previously requested folders. New locations belong to the
     // explicit setup action, not a focus event or the Accessibility poll.
     if (!operation.current && !folderRefresh.current) {
-      const answered = (["documents", "desktop", "downloads"] as ProtectedFolder[])
-        .filter((folder) => folderAccessRef.current[folder]);
-      folderRefresh.current = requestFolderAccess(answered).then(applyFolderResults)
+      const answered = (
+        ["documents", "desktop", "downloads"] as ProtectedFolder[]
+      ).filter((folder) => folderAccessRef.current[folder]);
+      folderRefresh.current = requestFolderAccess(answered)
+        .then(applyFolderResults)
         .catch(() => notify("Could not check folder access"))
-        .finally(() => { folderRefresh.current = null; });
+        .finally(() => {
+          folderRefresh.current = null;
+        });
     }
-    const [status] = await Promise.all([refreshPlatform(), folderRefresh.current]);
+    const [status] = await Promise.all([
+      refreshPlatform(),
+      folderRefresh.current,
+    ]);
     return status;
   }, [applyFolderResults, notify, refreshPlatform]);
 
   useEffect(() => {
     if (!isTauri()) return;
     void refresh();
-    const timer = window.setInterval(() => void refreshPlatform(), POLL_INTERVAL_MS);
+    const timer = window.setInterval(
+      () => void refreshPlatform(),
+      POLL_INTERVAL_MS,
+    );
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
-    return () => { window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [refresh, refreshPlatform]);
 
   const exclusive = useCallback(async (task: () => Promise<void>) => {
     if (operation.current) return;
     operation.current = true;
     setBusy(true);
-    try { await folderRefresh.current; await task(); } finally { operation.current = false; setBusy(false); }
+    try {
+      await folderRefresh.current;
+      await task();
+    } finally {
+      operation.current = false;
+      setBusy(false);
+    }
   }, []);
 
   const askAccessibility = useCallback(async () => {
@@ -129,45 +196,79 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     applyFolderResults(await requestFolderAccess(folders));
   }, [applyFolderResults, folders]);
 
-  const requestAccessibility = useCallback(() => exclusive(async () => {
-    try { await askAccessibility(); } catch { notify("Could not request Accessibility permission"); }
-  }), [askAccessibility, exclusive, notify]);
+  const requestAccessibility = useCallback(
+    () =>
+      exclusive(async () => {
+        try {
+          await askAccessibility();
+        } catch {
+          notify("Could not request Accessibility permission");
+        }
+      }),
+    [askAccessibility, exclusive, notify],
+  );
 
-  const requestFolders = useCallback(() => exclusive(async () => {
-    try { await askFolders(); } catch { notify("Could not request folder access"); }
-  }), [askFolders, exclusive, notify]);
+  const requestFolders = useCallback(
+    () =>
+      exclusive(async () => {
+        try {
+          await askFolders();
+        } catch {
+          notify("Could not request folder access");
+        }
+      }),
+    [askFolders, exclusive, notify],
+  );
 
   // Ask for everything in one pass. Folder prompts are answered in place, so they
   // come first; the Accessibility prompt hands the person off to System Settings.
-  const setUp = useCallback(() => exclusive(async () => {
-    try {
-      await askFolders();
-      const status = await getPlatformStatus();
-      setPlatform(status);
-      if (status.supported && !status.accessibilityTrusted) {
-        await askAccessibility();
-        notify("Turn on Latch Bar in System Settings → Accessibility. Latch detects it automatically.");
-      }
-    } catch {
-      notify("Could not finish permission setup");
-    }
-  }), [askAccessibility, askFolders, exclusive, notify]);
+  const setUp = useCallback(
+    () =>
+      exclusive(async () => {
+        try {
+          await askFolders();
+          const status = await getPlatformStatus();
+          setPlatform(status);
+          if (status.supported && !status.accessibilityTrusted) {
+            await askAccessibility();
+            notify(
+              "Turn on Latch Bar in System Settings → Accessibility. Latch detects it automatically.",
+            );
+          }
+        } catch {
+          notify("Could not finish permission setup");
+        }
+      }),
+    [askAccessibility, askFolders, exclusive, notify],
+  );
 
-  const repairAccessibility = useCallback(() => exclusive(async () => {
-    try {
-      setPlatform(await repairAccessibilityPermission());
-      notify("The stale Accessibility entry was reset. Enable the current Latch Bar copy in macOS Settings.");
-    } catch {
-      notify("Could not repair Accessibility permission");
-    }
-  }), [exclusive, notify]);
+  const repairAccessibility = useCallback(
+    () =>
+      exclusive(async () => {
+        try {
+          setPlatform(await repairAccessibilityPermission());
+          notify(
+            "The stale Accessibility entry was reset. Enable the current Latch Bar copy in macOS Settings.",
+          );
+        } catch {
+          notify("Could not repair Accessibility permission");
+        }
+      }),
+    [exclusive, notify],
+  );
 
   const relaunch = useCallback(async () => {
     if (selectedAgentId) {
-      notify("Save your changes and close the agent editor before relaunching.");
+      notify(
+        "Save your changes and close the agent editor before relaunching.",
+      );
       return;
     }
-    try { await relaunchApp(); } catch (error) { notify(String(error)); }
+    try {
+      await relaunchApp();
+    } catch (error) {
+      notify(String(error));
+    }
   }, [notify, selectedAgentId]);
 
   const view = useCallback(() => {
@@ -175,13 +276,44 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     setViewRequest((value) => value + 1);
   }, [setActiveNav]);
 
-  const value = useMemo<Permissions>(() => ({
-    platform, folders, folderAccess, busy, viewRequest,
-    needsSetup: settings.contextBarEnabled && needsPermissionSetup(platform),
-    refresh, requestAccessibility, requestFolders, setUp, repairAccessibility, relaunch, view,
-  }), [busy, folderAccess, folders, platform, refresh, relaunch, repairAccessibility, requestAccessibility, requestFolders, settings.contextBarEnabled, setUp, view, viewRequest]);
+  const value = useMemo<Permissions>(
+    () => ({
+      platform,
+      folders,
+      folderAccess,
+      busy,
+      viewRequest,
+      needsSetup: settings.contextBarEnabled && needsPermissionSetup(platform),
+      refresh,
+      requestAccessibility,
+      requestFolders,
+      setUp,
+      repairAccessibility,
+      relaunch,
+      view,
+    }),
+    [
+      busy,
+      folderAccess,
+      folders,
+      platform,
+      refresh,
+      relaunch,
+      repairAccessibility,
+      requestAccessibility,
+      requestFolders,
+      settings.contextBarEnabled,
+      setUp,
+      view,
+      viewRequest,
+    ],
+  );
 
-  return <PermissionContext.Provider value={value}>{children}</PermissionContext.Provider>;
+  return (
+    <PermissionContext.Provider value={value}>
+      {children}
+    </PermissionContext.Provider>
+  );
 }
 
 export const usePermissions = () => useContext(PermissionContext);
