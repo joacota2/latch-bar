@@ -1,3 +1,4 @@
+import { Modal } from "./Modal";
 import { CircleHelp, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NavKey } from "../domain";
@@ -65,10 +66,6 @@ export function Topbar() {
         setHelpOpen(false);
         setSearchOpen((open) => !open);
       }
-      if (event.key === "Escape") {
-        setSearchOpen(false);
-        setHelpOpen(false);
-      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -123,8 +120,8 @@ export function Topbar() {
       </header>
 
       {searchOpen && (
-        <div className="dialog-scrim" onMouseDown={() => setSearchOpen(false)}>
-          <section className="search-dialog" role="dialog" aria-modal="true" aria-label="Search Latch" onMouseDown={(event) => event.stopPropagation()}>
+        <Modal className="dialog-scrim" label="Search Latch" onDismiss={() => setSearchOpen(false)}>
+          <section className="search-dialog" aria-label="Search Latch">
             <header><Search size={17} /><input ref={searchInput} aria-label="Search Latch" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && results[0]) selectEntry(results[0]); }} placeholder="Search agents, runs, MCPs, skills, and workspaces…" /><button aria-label="Close search" onClick={() => setSearchOpen(false)}><X size={16} /></button></header>
             <div className="search-results" aria-live="polite">
               {results.length > 0 ? results.map((entry) => (
@@ -136,12 +133,12 @@ export function Topbar() {
             </div>
             <footer><span><kbd>↵</kbd> Open a result</span><span><kbd>esc</kbd> Close</span></footer>
           </section>
-        </div>
+        </Modal>
       )}
 
       {helpOpen && (
-        <div className="dialog-scrim" onMouseDown={() => setHelpOpen(false)}>
-          <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" onMouseDown={(event) => event.stopPropagation()}>
+        <Modal className="dialog-scrim" label="Using Latch Bar" onDismiss={() => setHelpOpen(false)}>
+          <section className="help-dialog" aria-labelledby="help-title">
             <header><div><span className="eyebrow">QUICK START</span><h2 id="help-title">Using Latch Bar</h2></div><button aria-label="Close help" onClick={() => setHelpOpen(false)}><X size={17} /></button></header>
             <ol>
               <li><b>1</b><span><strong>Set up permissions</strong><small>Open Settings → Permissions and choose Set up permissions for your current configuration. Return to Latch after granting access and check whether a relaunch is needed.</small></span></li>
@@ -151,7 +148,7 @@ export function Topbar() {
             <div className="help-shortcuts"><span><kbd>⌥ Space</kbd><small>Open Studio anywhere</small></span><span><kbd>⌘ K</kbd><small>Search Studio</small></span></div>
             <footer><button className="primary-button" onClick={() => { permissions.view(); setHelpOpen(false); }}>Open Settings</button></footer>
           </section>
-        </div>
+        </Modal>
       )}
     </>
   );

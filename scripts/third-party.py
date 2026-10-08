@@ -26,7 +26,7 @@ INPUTS = ["package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-taur
           "third-party/provenance.json", "vite.config.ts"]
 REVIEWED_TERMS = {"MIT", "Apache-2.0", "BSD-3-Clause", "BSD-2-Clause", "ISC", "MPL-2.0",
                   "Unicode-3.0", "BSL-1.0", "Zlib", "Unlicense", "0BSD", "MIT-0", "CC0-1.0",
-                  "CDLA-Permissive-2.0", "LLVM-exception"}
+                  "CDLA-Permissive-2.0", "LLVM-exception", "W3C-20150513"}
 
 
 def review_expression(expression):
@@ -318,7 +318,13 @@ def check_provenance(root):
     actual = {str(p.relative_to(root)): sha256(p.read_bytes())
               for directory in ["public", "src-tauri/icons", "docs/media"]
               for p in (root / directory).rglob("*") if p.is_file() and p.name != ".DS_Store"}
-    if actual != provenance["first_party_assets_sha256"]:
+    third_party = provenance.get("third_party_assets_sha256", {})
+    if set(third_party) & set(provenance["first_party_assets_sha256"]):
+        raise ValueError("First-party and third-party asset ownership overlaps")
+    fonts = {item["path"]: item["sha256"] for asset in read_json(root / "third-party/supplements.json")["assets"] for item in asset.get("binary_files", [])}
+    if fonts != third_party:
+        raise ValueError("Bundled font metadata does not match third-party provenance")
+    if actual != {**provenance["first_party_assets_sha256"], **third_party}:
         raise ValueError("Assets changed: review their provenance and update third-party/provenance.json")
 
 

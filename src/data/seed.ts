@@ -5,8 +5,6 @@ const defaultContext = {
   includeSelection: true,
   includeApplicationName: true,
   includeWindowTitle: false,
-  includeClipboard: false,
-  includeScreenshot: false,
   includeWorkspaceMetadata: false,
   maxSelectionCharacters: 50_000,
   excludedApplications: [],
@@ -57,8 +55,6 @@ export const seedAgents: CodexAgent[] = [
 export const seedRuns: Run[] = [];
 
 export const seedSettings: AppSettings = {
-  launchAtLogin: true,
-  showMenuBar: true,
   contextBarEnabled: true,
   selectionDelay: 220,
   minimumCharacters: 3,

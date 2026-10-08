@@ -136,3 +136,21 @@ On both an Intel Mac and an Apple Silicon Mac:
 5. Recheck installed version and retained data after restart. Do not claim either architecture validated until its actual install/update test passes.
 
 Automated checks: `npm run check:version`, `npm test` (includes manifest/signature tests), `npm run build`, `cargo check --manifest-path src-tauri/Cargo.toml --locked`, and `cargo test --manifest-path src-tauri/Cargo.toml --locked`.
+
+### macOS 12.0 reliability release gate
+
+Do not publish this reliability change until the following signed-app matrix has recorded passing evidence. Current WebKit automation and feature-disabled tests do not replace either native environment.
+
+| Required environment | Status for this implementation | Evidence required |
+| --- | --- | --- |
+| macOS 12.0, original supported WebKit, signed app | **BLOCKED — not available in this workspace** | OS/build version, app version/signature, tester, date, results below |
+| Current macOS, signed app | **BLOCKED — signed interactive app matrix not performed** | OS/build version, app version/signature, tester, date, results below |
+| Intel and Apple Silicon install/update/relaunch | **BLOCKED — signed update matrix not performed** | Both architectures and two increasing signed test versions |
+
+For both OS environments verify TextEdit, browser textarea/contenteditable, Electron editor, repeated selected text at different ranges, emoji/UTF-16 boundaries, missing/disappearing ranges, changed editor/process, protected fields, clipboard contention, and an unverified dispatch that cannot retry. Confirm overlay focus/pinning and edge/fullscreen behavior.
+
+Verify overlapping approvals show command, cwd, reason and access scope before action; Deny/Cancel remain available for unsupported scopes. With history both on and off, open a result in an initially closed Studio, remount it, force acknowledgement timeout, retry, and reset during transfer. Confirm no duplicate history, no selected text in the handoff, and no temporary result in saved files or later history backfill.
+
+Exercise keyboard focus and nested Escape, dirty form/JSON prompts on all dismissal routes including the native close button, invalid JSON, failed saves, concurrent revision conflict, reduced motion, local fonts while offline, and inert loading/update overlays. Use the isolated update endpoint procedure above for update/relaunch tests.
+
+Automated gates additionally require `npm run format:check`, `npm run lint`, `npm run test:browser`, and `npm run check:native`, alongside every existing test, version, attribution, signing and security check. Keep existing narrow advisory exceptions; never broaden them to make this release pass. No release is published by the implementation task.

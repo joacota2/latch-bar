@@ -1,3 +1,4 @@
+import { emptyCatalog } from "./environment";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -94,7 +95,7 @@ describe("Context Bar lifecycle", () => {
       .mockResolvedValueOnce({ runId: "run-1", prompt: "first" })
       .mockResolvedValueOnce({ runId: "run-2", prompt: "second" });
     mocks.respondToApproval.mockReset().mockResolvedValue(undefined);
-    mocks.scanCodexEnvironment.mockReset().mockResolvedValue(null);
+    mocks.scanCodexEnvironment.mockReset().mockResolvedValue(emptyCatalog);
     mocks.chooseWorkspaceFolder.mockReset().mockResolvedValue(null);
     mocks.copyNativeText.mockResolvedValue(undefined);
     mocks.continueNativeRun.mockResolvedValue(undefined);
@@ -152,6 +153,31 @@ describe("Context Bar lifecycle", () => {
     );
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
   };
+  it("keeps a newer queued request while an older response is delivered", async () => {
+    configure(); await launch();
+    let respond!: () => void;
+    mocks.respondToApproval.mockImplementationOnce(() => new Promise<void>((resolve) => { respond = resolve; }));
+    message({ id: 7, method: "item/commandExecution/requestApproval", params: { command: "first command", cwd: "/first" } });
+    await userEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    message({ id: "7", method: "item/permissions/requestApproval", params: { permissions: { network: { enabled: true }, fileSystem: { write: ["/second"] } }, reason: "Second request" } });
+    message({ id: 7, method: "item/commandExecution/requestApproval", params: { command: "first command" } });
+    await act(async () => respond());
+    expect(screen.getByText("/second")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow for this turn" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Deny" }));
+    expect(mocks.respondToApproval).toHaveBeenLastCalledWith("run-1", "7", { permissions: {}, scope: "turn" });
+    expect(screen.queryByRole("button", { name: "Allow for this turn" })).not.toBeInTheDocument();
+  });
+  it("shows available file changes and rejects unsupported grants while retaining Deny", async () => {
+    configure(); await launch();
+    message({ method: "item/started", params: { item: { id: "edit", type: "fileChange", changes: [{ path: "/repo/file.ts", diff: "+fixed" }] } } });
+    message({ id: 1, method: "item/fileChange/requestApproval", params: { itemId: "edit" } });
+    expect(screen.getByText("/repo/file.ts")).toBeInTheDocument(); expect(screen.getByText("+fixed")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Deny" }));
+    message({ id: 2, method: "item/permissions/requestApproval", params: { permissions: { future: true } } });
+    expect(screen.getByRole("button", { name: "Allow for this turn" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
+  });
   it("GAP-02 most recent prefers latest discovered project [acceptance]", async () => {
     configure(
       { workspaceMode: "recent-project" },

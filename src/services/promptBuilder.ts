@@ -5,9 +5,7 @@ export interface SelectionInput {
   application: string;
   windowTitle?: string;
   workspace?: string;
-  clipboard?: string;
   language?: string;
-  screenshotPath?: string;
   timestamp?: string;
 }
 
@@ -38,15 +36,15 @@ export function buildPrompt(agent: CodexAgent, input: SelectionInput) {
     application: policy.includeApplicationName ? input.application : "",
     window_title: policy.includeWindowTitle ? input.windowTitle ?? "" : "",
     workspace: policy.includeWorkspaceMetadata ? input.workspace ?? "none" : "",
-    clipboard: policy.includeClipboard ? input.clipboard ?? "" : "",
+    clipboard: "",
     timestamp: input.timestamp ?? new Date().toISOString(),
     language: input.language ?? "auto",
-    screenshot_path: policy.includeScreenshot ? input.screenshotPath ?? "" : "",
+    screenshot_path: "",
   };
 
   // One pass prevents variables inside selected text from being expanded again.
   const instructions = agent.promptTemplate.replace(/\{\{(\w+)\}\}/g, (token, key: string) =>
-    Object.hasOwn(variables, key) ? `\n\n**Context data (${key.replace(/_/g, " ")}):**\n\n${codeBlock(variables[key])}\n\n` : token).trim();
+    Object.prototype.hasOwnProperty.call(variables, key) ? `\n\n**Context data (${key.replace(/_/g, " ")}):**\n\n${codeBlock(variables[key])}\n\n` : token).trim();
 
   const selectionAlreadyIncluded = agent.promptTemplate.includes("{{selection}}");
   const contextLines = [

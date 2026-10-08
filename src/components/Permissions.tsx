@@ -60,7 +60,7 @@ export function PermissionsPanel({ onOpenCodex }: { onOpenCodex: () => void }) {
     setCheckingRuntime(true);
     setRuntimeError("");
     try {
-      const [status] = await Promise.all([getRuntimeStatus(), refreshCodexEnvironment()]);
+      const [status] = await Promise.all([getRuntimeStatus(true), refreshCodexEnvironment(undefined, undefined, true)]);
       setRuntime(status);
     } catch (error) {
       setRuntimeError(String(error));

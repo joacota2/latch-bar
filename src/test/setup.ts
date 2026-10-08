@@ -19,3 +19,5 @@ Object.defineProperty(navigator, "locks", { configurable: true, value: {
     return next;
   },
 } });
+
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: vi.fn(async () => () => {}), hide: vi.fn(async () => {}) }) }));

@@ -41,6 +41,7 @@ const MINIMUM_DRAG_DISTANCE_SQUARED: f64 = 16.0;
 
 static KEYBOARD_EVENTS_OBSERVED: AtomicBool = AtomicBool::new(false);
 
+type SelectionCandidates = (Vec<AXUIElementRef>, i32, Option<usize>, Option<usize>);
 type AXUIElementRef = *const c_void;
 
 struct OwnedAxElement(AXUIElementRef);
@@ -324,9 +325,7 @@ unsafe fn confidently_editable_target(element: AXUIElementRef) -> Option<OwnedAx
         }
 
         let parent = copied_value(current.0, "AXParent").map(|value| value as AXUIElementRef);
-        let Some(parent) = parent else {
-            return None;
-        };
+        let parent = parent?;
         current = OwnedAxElement(parent);
     }
     None
@@ -377,8 +376,12 @@ unsafe fn replacement_capability(element: AXUIElementRef) -> ReplacementCapabili
     )
 }
 
+fn ranges_match(original: Option<CFRange>, current: Option<CFRange>) -> bool {
+    original.is_some() && original == current
+}
+
 unsafe fn selection_range_matches(target: &SelectionTarget, element: AXUIElementRef) -> bool {
-    target.range.is_none() || copied_range(element, "AXSelectedTextRange") == target.range
+    ranges_match(target.range, copied_range(element, "AXSelectedTextRange"))
 }
 
 unsafe fn target_has_keyboard_focus(target: AXUIElementRef, process_id: i32) -> bool {
@@ -508,7 +511,7 @@ unsafe fn selected_element(mut element: AXUIElementRef) -> SelectedElementResult
 
 unsafe fn selection_targets(
     selection_point: Option<SelectionBounds>,
-) -> Option<(Vec<AXUIElementRef>, i32, Option<usize>, Option<usize>)> {
+) -> Option<SelectionCandidates> {
     let system = AXUIElementCreateSystemWide();
     if system.is_null() {
         return None;
@@ -1243,8 +1246,8 @@ impl MacOsAdapter {
         if frontmost_process_id() != target.process_id
             || !unsafe { target_has_keyboard_focus(editable, target.process_id) }
             || !unsafe { selection_range_matches(target, selection_element) }
-            || unsafe { selected_text(selection_element) }
-                .is_some_and(|value| value != target.selected_text)
+            || unsafe { selected_text(selection_element) }.as_deref() != Some(target.selected_text.as_str())
+            || NSPasteboard::generalPasteboard().changeCount() != change_count
         {
             let _ = snapshot.restore_if_unchanged(change_count);
             return Err("The source selection changed before paste".into());
@@ -1367,7 +1370,7 @@ impl PlatformAdapter for MacOsAdapter {
                         && target.process_id == process_id
                         && target.selection_element.is_some_and(|element| {
                             selected_text(element).as_deref() == Some(target.selected_text.as_str())
-                                && selection_range_matches(target, element)
+                                && (target.range.is_none() || selection_range_matches(target, element))
                         })
                 });
             if unchanged {
@@ -1460,7 +1463,8 @@ impl PlatformAdapter for MacOsAdapter {
                         return Ok(None);
                     }
                 };
-                let replacement_capability = if fallback_target.is_some() {
+                let range = fallback_target.as_ref().and_then(|target| copied_range(target.0, "AXSelectedTextRange"));
+                let replacement_capability = if fallback_target.is_some() && range.is_some() {
                     ReplacementCapability::ClipboardPaste
                 } else {
                     ReplacementCapability::None
@@ -1474,15 +1478,14 @@ impl PlatformAdapter for MacOsAdapter {
                     process_id,
                     bounds: interaction.bounds,
                     replacement_capability,
+                    replacement_unavailable_reason: range.is_none().then(|| "The editor cannot verify the original selection position. Copy the answer instead.".into()),
                 };
                 *self
                     .target
                     .lock()
                     .map_err(|_| "Selection target is unavailable")? = Some(SelectionTarget {
                     selection_id,
-                    range: fallback_target
-                        .as_ref()
-                        .and_then(|target| copied_range(target.0, "AXSelectedTextRange")),
+                    range,
                     generation: interaction.generation,
                     selection_element: None,
                     paste_element: fallback_target.map(OwnedAxElement::into_raw),
@@ -1575,7 +1578,7 @@ impl PlatformAdapter for MacOsAdapter {
                     bounds
                 }
             };
-            let replacement_capability = replacement_capability(focused.0);
+            let replacement_capability = if range.is_some() { replacement_capability(focused.0) } else { ReplacementCapability::None };
             let paste_element = (replacement_capability != ReplacementCapability::None)
                 .then(|| confidently_editable_target(focused.0))
                 .flatten()
@@ -1602,6 +1605,7 @@ impl PlatformAdapter for MacOsAdapter {
                 process_id,
                 bounds,
                 replacement_capability,
+                replacement_unavailable_reason: range.is_none().then(|| "The editor cannot verify the original selection position. Copy the answer instead.".into()),
             };
             *self
                 .last_selection
@@ -1631,6 +1635,9 @@ impl PlatformAdapter for MacOsAdapter {
         if frontmost_process_id() != target.process_id {
             return Err("The source application is no longer active".into());
         }
+        if target.range.is_none() {
+            return Err("The editor cannot verify the original selection position. Copy the answer instead.".into());
+        }
         let result = match target.replacement_capability {
             ReplacementCapability::None => Err("The original selection is not editable".into()),
             ReplacementCapability::Accessibility => {
@@ -1643,6 +1650,7 @@ impl PlatformAdapter for MacOsAdapter {
                         && pid == target.process_id
                         && selected_text(element).as_deref() == Some(target.selected_text.as_str())
                         && selection_range_matches(target, element)
+                        && target_has_keyboard_focus(target.paste_element.unwrap_or(element), target.process_id)
                         && attribute_is_settable(element, "AXSelectedText")
                 };
                 if !current {
@@ -1651,6 +1659,11 @@ impl PlatformAdapter for MacOsAdapter {
                 let before = unsafe { copied_string(element, "AXValue") };
                 let expected = unsafe { expected_value(element, target.range, text) };
                 let replacement = CFString::new(text);
+                if frontmost_process_id() != target.process_id || !unsafe {
+                    target_has_keyboard_focus(target.paste_element.unwrap_or(element), target.process_id)
+                        && selected_text(element).as_deref() == Some(target.selected_text.as_str())
+                        && selection_range_matches(target, element)
+                } { return Err("The original editable selection changed before replacement".into()); }
                 let replaced = unsafe {
                     AXUIElementSetAttributeValue(
                         element,
@@ -1673,8 +1686,12 @@ impl PlatformAdapter for MacOsAdapter {
                     // Fall back only after a rejected write with an unchanged value and
                     // selection. Never paste again after an ambiguous successful write.
                     self.paste_to_target(text, target)
-                } else {
+                } else if before.is_some() && unsafe { copied_string(element, "AXValue") } == before {
                     Err("The source application rejected replacement. Copy the answer and paste it manually.".into())
+                } else {
+                    // A rejected Accessibility call can still have changed the editor.
+                    // Consume this ambiguous dispatch so no automatic retry can write twice.
+                    Ok(ReplacementResult { method: "accessibility", verified: false })
                 }
             }
             ReplacementCapability::ClipboardPaste => self.paste_to_target(text, target),
@@ -1694,6 +1711,16 @@ impl PlatformAdapter for MacOsAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_requires_the_original_position_even_for_repeated_text() {
+        let first = CFRange { location: 0, length: 4 };
+        let second = CFRange { location: 10, length: 4 };
+        assert!(!ranges_match(None, None));
+        assert!(!ranges_match(Some(first), None));
+        assert!(!ranges_match(Some(first), Some(second)));
+        assert!(ranges_match(Some(first), Some(first)));
+    }
 
     #[test]
     fn replacement_range_uses_utf16_offsets_and_rejects_invalid_boundaries() {

@@ -2379,6 +2379,12 @@ Archive integrity: sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqO
 Scope: build tooling with potentially emitted runtime helpers
 Notice b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681 (LICENSE.md)
 
+npm:focus-trap@8.2.3
+License expression: MIT
+Source: https://registry.npmjs.org/focus-trap/-/focus-trap-8.2.3.tgz
+Archive integrity: sha512-LTNHZwcFM7bSdU1cG1ExoaTEzoGmdjw+EzDotolZmLTCbm0ll2k6J3NL+WfqP14nGLxAp+XDJgwlT2DtNhcukA==
+Notice b8d0347312c547c22802b39e495bc8f75d1a27bd69a51950fe5dcf8529b05070 (LICENSE)
+
 npm:lucide-react@0.468.0
 License expression: ISC
 Source: https://registry.npmjs.org/lucide-react/-/lucide-react-0.468.0.tgz
@@ -2412,12 +2418,27 @@ Source: https://registry.npmjs.org/scheduler/-/scheduler-0.27.0.tgz
 Archive integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==
 Notice da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93 (LICENSE)
 
+npm:tabbable@6.5.0
+License expression: MIT
+Source: https://registry.npmjs.org/tabbable/-/tabbable-6.5.0.tgz
+Archive integrity: sha512-wieBHXygIm7OyQOu5hQlkk62/WyCFYGlWg7L6/ZCUZwx0o398Zkn4pVmMyfYhfMG8kGrj/Krt8eIk6UKC6VzwA==
+Notice 8e714750725e75c8b31172ef84c0805f94873f86e3b5cfca8a948553f0778fa1 (LICENSE)
+
 npm:vite@7.3.6
 License expression: MIT
 Source: https://registry.npmjs.org/vite/-/vite-7.3.6.tgz
 Archive integrity: sha512-4XP60spRGjSZFf1qYH+dJIkK2znL3zQfl9KkOV9MkkRR/3Dls0dxaBsQPTloEc5BLXWPL9vsOxopxyKoMmDueg==
 Scope: build tooling with potentially emitted runtime helpers
 Notice a77a1c089806b39ad339535bdf3677f636c91d96693e8ad7b11fe733f650ea64 (LICENSE.md)
+
+npm:wicg-inert@3.1.3
+License expression: W3C-20150513
+Source: https://registry.npmjs.org/wicg-inert/-/wicg-inert-3.1.3.tgz
+Archive integrity: sha512-5L0PKK7iP+0Q/jv2ccgmkz/pfXbumZtlEyWS/xnX+L+Og3f7WjL4+iEs18k4IuldOX3PgGpza3qGndL9xUBjCQ==
+Review: The package declares W3C-20150513 and its source header links the 2015 license. LICENSE.md links the 2023 version. Preserve both full notices alongside the upstream notice. Latch bundles the unmodified inert polyfill with normal JavaScript build transformations; no upstream source patches. Both texts permit copying and distribution with notices and disclaimers retained, and prohibit unauthorized trademark publicity.
+Notice 34982c639ae391391ff5a14fe6a7883911d55301370edb4f1487c4bc332a2f72 (LICENSE.md)
+Notice 7cfe4d7aaf9aee3cecb77b3b6a075936b406a94a312bdfd3db33f18de9beb9c6 (https://www.w3.org/copyright/software-license-2015/)
+Notice 605b661b64cbfd993d400c506b28d8a2f78a482ec764789c7308aac86eaee74b (https://www.w3.org/copyright/software-license-2023/)
 
 npm:zod@3.25.76
 License expression: MIT
@@ -2427,12 +2448,12 @@ Notice 3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8 (LICENSE
 
 Asset: dmsans
 License: OFL-1.1
-Referenced through Google Fonts in src/styles.css; font binaries are not vendored.
+Bundled locally in public/fonts/DMSans[opsz,wght].ttf; loaded offline by src/styles.css.
 Notice 9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1 (https://raw.githubusercontent.com/google/fonts/c26e50af610a8300ad53a2b4955828e329a52d39/ofl/dmsans/OFL.txt)
 
 Asset: manrope
 License: OFL-1.1
-Referenced through Google Fonts in src/styles.css; font binaries are not vendored.
+Bundled locally in public/fonts/Manrope[wght].ttf; loaded offline by src/styles.css.
 Notice 58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b (https://raw.githubusercontent.com/google/fonts/16c2976c68c3137c09c69c8e9d3deada699d157e/ofl/manrope/OFL.txt)
 
 FULL LICENSE AND NOTICE TEXTS
@@ -5568,6 +5589,17 @@ SOFTWARE.
 
 
 ========================================================================
+Notice 34982c639ae391391ff5a14fe6a7883911d55301370edb4f1487c4bc332a2f72
+========================================================================
+All Reports in this Repository are licensed by Contributors
+under the
+[W3C Software and Document License](https://www.w3.org/Consortium/Legal/2023/software-license.html).
+
+Contributions to Specifications are made under the
+[W3C CLA](https://www.w3.org/community/about/agreements/cla/).
+
+
+========================================================================
 Notice 3521672491a3479422d5fe1aca6645dd2984090f85da6e5205abfb18fb7a6897
 ========================================================================
 Copyright (c) 2021 RustCrypto Developers
@@ -7620,6 +7652,31 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+Notice 605b661b64cbfd993d400c506b28d8a2f78a482ec764789c7308aac86eaee74b
+========================================================================
+W3C Software and Document License (2023)
+Source: https://www.w3.org/copyright/software-license-2023/
+
+This work is being provided by the copyright holders under the following license.
+License
+By obtaining and/or copying this work, you (the licensee) agree that you have read, understood, and will comply with the following terms and conditions.
+Permission to copy, modify, and distribute this work, with or without modification, for any purpose and without fee or royalty is hereby granted, provided that you include the following on ALL copies of the work or portions thereof, including modifications:
+The full text of this NOTICE in a location viewable to users of the redistributed or derivative work.
+Any pre-existing intellectual property disclaimers, notices, or terms and conditions. If none exist, the
+W3C software and document short notice
+should be included.
+Notice of any changes or modifications, through a copyright statement on the new code or document such as "This software or document includes material copied from or derived from [title and URI of the W3C document]. Copyright © [$year-of-document]
+World Wide Web Consortium
+.
+https://www.w3.org/copyright/software-license-2023/
+"
+Disclaimers
+THIS WORK IS PROVIDED "AS IS," AND COPYRIGHT HOLDERS MAKE NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO, WARRANTIES OF MERCHANTABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF THE SOFTWARE OR DOCUMENT WILL NOT INFRINGE ANY THIRD PARTY PATENTS, COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS.
+COPYRIGHT HOLDERS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF ANY USE OF THE SOFTWARE OR DOCUMENT.
+The name and trademarks of copyright holders may NOT be used in advertising or publicity pertaining to the work without specific, written prior permission. Title to copyright in this work will at all times remain with copyright holders.
 
 
 ========================================================================
@@ -9677,6 +9734,27 @@ THIS SOFTWARE.
 
 
 ========================================================================
+Notice 7cfe4d7aaf9aee3cecb77b3b6a075936b406a94a312bdfd3db33f18de9beb9c6
+========================================================================
+W3C Software and Document License (2015)
+Source: https://www.w3.org/copyright/software-license-2015/
+
+This work is being provided by the copyright holders under the following license.
+License
+By obtaining and/or copying this work, you (the licensee) agree that you have read, understood, and will comply with the following terms and conditions.
+Permission to copy, modify, and distribute this work, with or without modification, for any purpose and without fee or royalty is hereby granted, provided that you include the following on ALL copies of the work or portions thereof, including modifications:
+The full text of this NOTICE in a location viewable to users of the redistributed or derivative work.
+Any pre-existing intellectual property disclaimers, notices, or terms and conditions. If none exist, the
+W3C Software and Document Short Notice
+should be included.
+Notice of any changes or modifications, through a copyright statement on the new code or document such as "This software or document includes material copied from or derived from [title and URI of the W3C document]. Copyright © [YEAR] W3C® (MIT, ERCIM, Keio, Beihang)."
+Disclaimers
+THIS WORK IS PROVIDED "AS IS," AND COPYRIGHT HOLDERS MAKE NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO, WARRANTIES OF MERCHANTABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF THE SOFTWARE OR DOCUMENT WILL NOT INFRINGE ANY THIRD PARTY PATENTS, COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS.
+COPYRIGHT HOLDERS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF ANY USE OF THE SOFTWARE OR DOCUMENT.
+The name and trademarks of copyright holders may NOT be used in advertising or publicity pertaining to the work without specific, written prior permission. Title to copyright in this work will at all times remain with copyright holders.
+
+
+========================================================================
 Notice 7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c
 ========================================================================
 This is free and unencumbered software released into the public domain.
@@ -10976,6 +11054,33 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+Notice 8e714750725e75c8b31172ef84c0805f94873f86e3b5cfca8a948553f0778fa1
+========================================================================
+The MIT License (MIT)
+
+Copyright (c) 2015 David Clark
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 
 
 ========================================================================
@@ -16748,6 +16853,32 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========================================================================
+Notice b8d0347312c547c22802b39e495bc8f75d1a27bd69a51950fe5dcf8529b05070
+========================================================================
+The MIT License (MIT)
+
+Copyright (c) 2015-2016 David Clark
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 ========================================================================

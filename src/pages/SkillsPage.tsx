@@ -12,7 +12,7 @@ export function SkillsPage() {
     <div className="skills-list">
       {visible.map((skill) => { const users = agents.filter((agent) => agent.enabledSkills.includes(skill.id)); return <article className="skill-row" key={skill.id}>
         <span className="skill-icon"><Braces size={18} /></span>
-        <div className="skill-copy"><h3>{skill.name}</h3><p>{skill.description}</p><div><SourceTag>{skill.source}</SourceTag>{skill.compatible && <span className="compatible"><Check size={11} /> Available</span>}</div></div>
+        <div className="skill-copy"><h3>{skill.name}</h3><p>{skill.description}</p><p>{skill.path}</p><div><SourceTag>{skill.source}</SourceTag>{skill.compatible && <span className="compatible"><Check size={11} /> Available</span>}</div></div>
         <div className="skill-agents"><span>Used by</span><div>{users.length > 0 ? users.slice(0, 4).map((agent) => <b title={agent.name} key={agent.id}>{agent.icon}</b>) : <small>None</small>}</div></div>
         <Toggle disabled checked={skill.enabled} onChange={() => notify("Skill availability follows Codex configuration")} label={`Enable ${skill.name}`} />
       </article>; })}

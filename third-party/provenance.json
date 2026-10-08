@@ -67,5 +67,9 @@
     "docs/media/latch-bar-conversation.jpg": "49fad72f0349293c43013ccbd3a1d23086bf22fa2db97ee5b3bd025a6e7cd752",
     "docs/media/latch-bar-hero.png": "c9e590571adcad277c610c1483a4cc9ff317a1cd014ec785fcc3f1bf5fb9a3ac",
     "docs/media/latch-bar-studio.jpg": "3285fb89752850aed5066002a3d9eef914338af54111879f3029addc2874cf3e"
+  },
+  "third_party_assets_sha256": {
+    "public/fonts/DMSans[opsz,wght].ttf": "4eed9b02066ffd572938b7076f87ce0a6df0ecead8088f884ade33e708073ddc",
+    "public/fonts/Manrope[wght].ttf": "d0639be45d0af36e798172419d7bd173c4bd4f29e2b76cbb69db1d11bf8b0a40"
   }
 }

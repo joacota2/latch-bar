@@ -1,3 +1,5 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { TransientResultProvider } from "./store/TransientResultStore";
 import { listen } from "@tauri-apps/api/event";
 import { AgentEditor } from "./components/AgentEditor";
 import { Sidebar } from "./components/Sidebar";
@@ -26,12 +28,12 @@ const pages = {
 };
 
 export function App() {
-  return <UpdateProvider><PermissionProvider><Studio /></PermissionProvider></UpdateProvider>;
+  return <UpdateProvider><PermissionProvider><TransientResultProvider><Studio /></TransientResultProvider></PermissionProvider></UpdateProvider>;
 }
 
 function Studio() {
   const { installing } = useUpdates();
-  const { ready, persistenceError, reloadState, activeNav, setActiveNav, selectedAgentId, toasts, settings } = useLatch();
+  const { ready, persistenceError, reloadState, activeNav, setActiveNav, selectedAgentId, toasts, settings, requestCloseEditor, notify } = useLatch();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("latch-sidebar-collapsed") === "true");
 
   useEffect(() => {
@@ -44,6 +46,15 @@ function Studio() {
     const subscription = listen("show-runs", () => setActiveNav("runs"));
     return () => { void subscription.then((dispose) => dispose()); };
   }, [setActiveNav]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const subscription = getCurrentWindow().onCloseRequested((event) => {
+      event.preventDefault();
+      void requestCloseEditor().then(async (allowed) => { if (allowed) await getCurrentWindow().hide(); }).catch(() => notify("Could not hide Studio. Your saved data is still available."));
+    });
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, [requestCloseEditor, notify]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((collapsed) => {

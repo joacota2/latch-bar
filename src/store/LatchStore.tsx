@@ -1,7 +1,10 @@
+import { useEnvironments } from "../hooks/useEnvironments";
+import { resolveSkillIds, type EnvironmentEntry } from "../services/environments";
+import { randomUUID } from "../services/compat";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, ContextBarState, McpServer, NavKey, Run, Workspace } from "../domain";
+import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, McpServer, NavKey, Run, Workspace } from "../domain";
 import { seedAgents } from "../data/seed";
-import { isTauri, scanCodexEnvironment } from "../services/runtime";
+import { isTauri } from "../services/runtime";
 import { completeState } from "../services/persistedState";
 import { readState, changeState, subscribeState, type Snapshot, type Change } from "../services/persistence";
 import { agentConfigSchema } from "../services/agentConfig";
@@ -22,8 +25,10 @@ interface LatchState {
   agents: CodexAgent[];
   selectedAgentId: string | null;
   setSelectedAgentId: (id: string | null) => void;
+  requestCloseEditor: () => Promise<boolean>;
+  registerEditorGuard: (guard: (() => Promise<boolean>) | null) => void;
   createAgent: (workspacePath?: string) => Promise<string | null>;
-  updateAgent: (agent: CodexAgent) => Promise<boolean>;
+  updateAgent: (agent: CodexAgent, expected?: CodexAgent) => Promise<boolean>;
   duplicateAgent: (id: string) => Promise<void>;
   deleteAgent: (id: string) => Promise<void>;
   togglePin: (id: string) => Promise<boolean>;
@@ -36,19 +41,13 @@ interface LatchState {
   codexEnvironment: CodexEnvironment | null;
   environmentStatus: "idle" | "loading" | "ready" | "unavailable" | "error";
   environmentError: string;
-  refreshCodexEnvironment: (workspacePath?: string, profile?: string) => Promise<CodexEnvironment | null>;
+  getEnvironment: (workspacePath?: string, profile?: string) => EnvironmentEntry;
+  migrateAgentSkills: (id: string, before: string[], skills: CodexSkill[], expected: CodexAgent) => Promise<boolean>;
+  refreshCodexEnvironment: (workspacePath?: string, profile?: string, forceRefresh?: boolean) => Promise<CodexEnvironment | null>;
   runs: Run[];
   upsertRun: (run: Run, epoch?: string) => Promise<boolean>;
   settings: AppSettings;
   updateSettings: (patch: Partial<AppSettings>) => Promise<boolean>;
-  contextBarState: ContextBarState;
-  setContextBarState: (state: ContextBarState) => void;
-  contextAgentId: string | null;
-  setContextAgentId: (id: string | null) => void;
-  contextResult: string;
-  setContextResult: (result: string) => void;
-  studioExpanded: boolean;
-  setStudioExpanded: (expanded: boolean) => void;
   toasts: Toast[];
   notify: (message: string) => void;
 }
@@ -64,55 +63,27 @@ export function LatchProvider({ children }: { children: ReactNode }) {
   const [helpRequest, setHelpRequest] = useState(0);
   const [activeNav, setActiveNav] = useState<NavKey>("agents");
   const [agents, setAgents] = useState<CodexAgent[]>(initial.agents);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentId, selectAgent] = useState<string | null>(null);
+  const editorGuard = useRef<(() => Promise<boolean>) | null>(null);
+  const registerEditorGuard = useCallback((guard: (() => Promise<boolean>) | null) => { editorGuard.current = guard; }, []);
+  const setSelectedAgentId = useCallback((id: string | null) => {
+    void (async () => { if (!editorGuard.current || await editorGuard.current()) selectAgent(id); })();
+  }, []);
+  const requestCloseEditor = useCallback(async () => {
+    if (editorGuard.current && !await editorGuard.current()) return false;
+    selectAgent(null); return true;
+  }, []);
   const [runs, setRuns] = useState<Run[]>(initial.runs);
-  const [mcps, setMcps] = useState<McpServer[]>([]);
-  const [skills, setSkills] = useState<CodexSkill[]>([]);
-  const [discoveredWorkspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const { get: getEnvironment, refresh: refreshCodexEnvironment, base } = useEnvironments();
+  const { environment: codexEnvironment, status: environmentStatus, error: environmentError } = base;
+  const mcps = useMemo(() => codexEnvironment?.mcpServers ?? [], [codexEnvironment]);
+  const skills = useMemo(() => codexEnvironment?.skills ?? [], [codexEnvironment]);
+  const discoveredWorkspaces = useMemo(() => codexEnvironment?.workspaces ?? [], [codexEnvironment]);
   const [savedWorkspaces, setSavedWorkspaces] = useState<Workspace[]>(initial.savedWorkspaces);
   const workspaces = useMemo(() => [...savedWorkspaces, ...discoveredWorkspaces.filter((item) => !savedWorkspaces.some((saved) => saved.path === item.path))], [savedWorkspaces, discoveredWorkspaces]);
-  const [codexEnvironment, setCodexEnvironment] = useState<CodexEnvironment | null>(null);
-  const [environmentStatus, setEnvironmentStatus] = useState<LatchState["environmentStatus"]>("idle");
-  const [environmentError, setEnvironmentError] = useState("");
   const [settings, setSettings] = useState<AppSettings>(initial.settings);
-  const [contextBarState, setContextBarState] = useState<ContextBarState>("idle");
-  const [contextAgentId, setContextAgentId] = useState<string | null>(null);
-  const [contextResult, setContextResult] = useState("");
-  const [studioExpanded, setStudioExpanded] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const environmentRequestId = useRef(0);
   const toastId = useRef(0);
-
-  const refreshCodexEnvironment = useCallback(async (workspacePath?: string, profile?: string) => {
-    const requestId = ++environmentRequestId.current;
-    if (!isTauri()) {
-      if (requestId === environmentRequestId.current) setEnvironmentStatus("unavailable");
-      return null;
-    }
-    setEnvironmentStatus("loading");
-    setEnvironmentError("");
-    try {
-      const environment = await scanCodexEnvironment(workspacePath, profile);
-      if (!environment) {
-        if (requestId === environmentRequestId.current) setEnvironmentStatus("unavailable");
-        return null;
-      }
-      if (requestId === environmentRequestId.current) {
-        setCodexEnvironment(environment);
-        setMcps(environment.mcpServers);
-        setSkills(environment.skills);
-        setWorkspaces(environment.workspaces);
-        setEnvironmentStatus("ready");
-      }
-      return environment;
-    } catch (caught) {
-      if (requestId === environmentRequestId.current) {
-        setEnvironmentError(caught instanceof Error ? caught.message : String(caught));
-        setEnvironmentStatus("error");
-      }
-      return null;
-    }
-  }, []);
 
   useEffect(() => { void refreshCodexEnvironment(); }, [refreshCodexEnvironment]);
 
@@ -126,7 +97,7 @@ export function LatchProvider({ children }: { children: ReactNode }) {
     // Legacy browser storage removal has revision zero. All committed
     // snapshots are monotonic, including refreshes racing a local write.
     if (previous && previous.revision > snapshot.revision && (isTauri() || snapshot.revision > 0)) return;
-    if (previous && previous.epoch !== snapshot.epoch) setSelectedAgentId(null);
+    if (previous && previous.epoch !== snapshot.epoch) selectAgent(null);
     snapshotRef.current = snapshot;
     setResetEpoch(snapshot.epoch);
     setAgents(snapshot.state.agents); setRuns(snapshot.state.runs);
@@ -165,33 +136,42 @@ export function LatchProvider({ children }: { children: ReactNode }) {
   const clearData = useCallback(async () => {
     if (await commit(() => completeState(null), true)) notify("Local data cleared");
   }, [commit, notify]);
-  const updateAgent = useCallback(async (agent: CodexAgent) => {
+  const updateAgent = useCallback(async (agent: CodexAgent, expected?: CodexAgent) => {
     const valid = agentConfigSchema.safeParse(agent);
     if (!valid.success) { notify(`Invalid agent: ${valid.error.issues[0].path.join(".")} ${valid.error.issues[0].message}`); return false; }
-    return commit((current) => ({ ...current, agents: current.agents.map((item) => item.id === agent.id ? { ...agent, ...valid.data, updatedAt: new Date().toISOString() } : item) }));
+    return commit((current) => {
+      if (expected && JSON.stringify(current.agents.find((item) => item.id === agent.id)) !== JSON.stringify(expected)) throw new Error("This agent changed elsewhere. Reload it or explicitly overwrite the newer version.");
+      return { ...current, agents: current.agents.map((item) => item.id === agent.id ? { ...agent, ...valid.data, updatedAt: new Date().toISOString() } : item) };
+    });
   }, [commit, notify]);
 
+  const migrateAgentSkills = useCallback((id: string, before: string[], catalog: CodexSkill[], expected: CodexAgent) => {
+    const { resolved } = resolveSkillIds(before, catalog);
+    if (JSON.stringify(before) === JSON.stringify(resolved)) return Promise.resolve(true);
+    return commit((current) => ({ ...current, agents: current.agents.map((agent) => agent.id === id && agent.workspaceMode === expected.workspaceMode && agent.fixedWorkspacePath === expected.fixedWorkspacePath && agent.codexProfile === expected.codexProfile && JSON.stringify(agent.enabledSkills) === JSON.stringify(before) ? { ...agent, enabledSkills: resolved } : agent) }));
+  }, [commit]);
+
   const createAgent = useCallback(async (workspacePath?: string) => {
-    const id = `agent-${crypto.randomUUID()}`;
+    const id = `agent-${randomUUID()}`;
     const saved = await commit((current) => ({ ...current, agents: [...current.agents, {
       ...seedAgents[0], id, name: "Untitled agent", description: "Describe what this agent should do.", icon: "✦", pinned: false,
       order: current.agents.length, workspaceMode: workspacePath ? "fixed" : "none", fixedWorkspacePath: workspacePath, enabledMcpServers: [], enabledSkills: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     }] }));
     if (saved) setSelectedAgentId(id);
     return saved ? id : null;
-  }, [commit]);
+  }, [commit, setSelectedAgentId]);
 
   const duplicateAgent = useCallback(async (id: string) => {
     const saved = await commit((current) => {
       const source = current.agents.find((item) => item.id === id);
-      return source ? { ...current, agents: [...current.agents, { ...source, id: crypto.randomUUID(), name: `${source.name} copy`, pinned: false, order: current.agents.length, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } : current;
+      return source ? { ...current, agents: [...current.agents, { ...source, id: randomUUID(), name: `${source.name} copy`, pinned: false, order: current.agents.length, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } : current;
     });
     if (saved) notify("Agent duplicated");
   }, [commit, notify]);
 
   const deleteAgent = useCallback(async (id: string) => {
     const saved = await commit((current) => ({ ...current, agents: current.agents.filter((item) => item.id !== id) }));
-    if (saved) { setSelectedAgentId(null); notify("Agent removed"); }
+    if (saved) { selectAgent(null); notify("Agent removed"); }
   }, [commit, notify]);
 
   const patchAgent = useCallback((id: string, field: "pinned" | "enabled") => {
@@ -224,18 +204,18 @@ export function LatchProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LatchState>(() => ({
     activeNav, setActiveNav,
-    agents, selectedAgentId, setSelectedAgentId, createAgent, updateAgent, duplicateAgent, deleteAgent,
+    agents, selectedAgentId, setSelectedAgentId, registerEditorGuard, requestCloseEditor, createAgent, updateAgent, duplicateAgent, deleteAgent,
     togglePin: (id) => patchAgent(id, "pinned"),
     toggleEnabled: (id) => patchAgent(id, "enabled"),
-    mcps, skills, workspaces, addWorkspace, removeWorkspace,
+    getEnvironment, migrateAgentSkills, mcps, skills, workspaces, addWorkspace, removeWorkspace,
     codexEnvironment, environmentStatus, environmentError, refreshCodexEnvironment,
     runs, upsertRun,
     settings, updateSettings,
-    contextBarState, setContextBarState, contextAgentId, setContextAgentId, contextResult, setContextResult,
-    studioExpanded, setStudioExpanded,
+
+
     toasts, notify, ready, persistenceError, reloadState, resetEpoch, clearData,
     recentWorkspace: discoveredWorkspaces[0]?.path, helpRequest, openHelp: () => setHelpRequest((n) => n + 1),
-  }), [toasts, ready, persistenceError, reloadState, resetEpoch, clearData, discoveredWorkspaces, helpRequest, addWorkspace, removeWorkspace, activeNav, agents, codexEnvironment, contextAgentId, contextBarState, contextResult, createAgent, deleteAgent, duplicateAgent, environmentError, environmentStatus, mcps, notify, patchAgent, refreshCodexEnvironment, runs, selectedAgentId, settings, skills, studioExpanded, updateAgent, updateSettings, upsertRun, workspaces]);
+  }), [setSelectedAgentId, registerEditorGuard, requestCloseEditor, getEnvironment, migrateAgentSkills, toasts, ready, persistenceError, reloadState, resetEpoch, clearData, discoveredWorkspaces, helpRequest, addWorkspace, removeWorkspace, activeNav, agents, codexEnvironment, createAgent, deleteAgent, duplicateAgent, environmentError, environmentStatus, mcps, notify, patchAgent, refreshCodexEnvironment, runs, selectedAgentId, settings, skills, updateAgent, updateSettings, upsertRun, workspaces]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

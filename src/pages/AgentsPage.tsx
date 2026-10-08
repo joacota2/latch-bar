@@ -19,16 +19,16 @@ function AgentRow({ agent }: { agent: CodexAgent }) {
   const { setSelectedAgentId, toggleEnabled, togglePin, duplicateAgent } = useLatch();
   const [open, setOpen] = useState(false);
   return (
-    <div className="agent-row" onClick={() => setSelectedAgentId(agent.id)}>
+    <div className="agent-row">
       <AgentGlyph agent={agent} />
-      <div className="agent-row-copy"><strong>{agent.name}</strong><span>{agent.description}</span></div>
+      <button className="agent-row-copy" onClick={() => setSelectedAgentId(agent.id)}><strong>{agent.name}</strong><span>{agent.description}</span></button>
       <div className="agent-runtime"><span>{agent.model === "default" ? "Codex default" : agent.model}</span><small>{agent.reasoningEffort} reasoning</small></div>
       <span className={`access-chip ${agent.sandbox}`}>{agent.sandbox === "read-only" ? "Read only" : agent.sandbox === "workspace-write" ? "Workspace write" : "Full access"}</span>
       <button className={agent.pinned ? "pin-button pinned" : "pin-button"} onClick={(event) => { event.stopPropagation(); togglePin(agent.id); }} aria-label={`Pin ${agent.name}`}><Pin size={15} fill={agent.pinned ? "currentColor" : "none"} /></button>
-      <span onClick={(event) => event.stopPropagation()}><Toggle checked={agent.enabled} onChange={() => toggleEnabled(agent.id)} label={`Enable ${agent.name}`} /></span>
+      <span><Toggle checked={agent.enabled} onChange={() => toggleEnabled(agent.id)} label={`Enable ${agent.name}`} /></span>
       <div className="row-menu-wrap">
         <button className="ghost-icon" onClick={(event) => { event.stopPropagation(); setOpen(!open); }} aria-label="Agent actions"><MoreHorizontal size={18} /></button>
-        {open && <div className="row-menu" onClick={(event) => event.stopPropagation()}><button onClick={() => setSelectedAgentId(agent.id)}>Edit agent</button><button onClick={() => duplicateAgent(agent.id)}><Copy size={13} /> Duplicate</button></div>}
+        {open && <div className="row-menu"><button onClick={() => setSelectedAgentId(agent.id)}>Edit agent</button><button onClick={() => duplicateAgent(agent.id)}><Copy size={13} /> Duplicate</button></div>}
       </div>
     </div>
   );

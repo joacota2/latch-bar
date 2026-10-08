@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, McpServer, Workspace } from "../domain";
+import type { AppSettings, CodexAgent, CodexEnvironment, CodexSkill, McpServer } from "../domain";
 import { buildPrompt, buildTitleSource, type SelectionInput } from "./promptBuilder";
 
 export interface RuntimeStatus {
@@ -43,8 +43,8 @@ export async function chooseWorkspaceFolder(): Promise<string | null> {
   return typeof path === "string" ? path : null;
 }
 
-export async function getRuntimeStatus(): Promise<RuntimeStatus> {
-  if (isTauri()) return invoke<RuntimeStatus>("codex_status");
+export async function getRuntimeStatus(forceRefresh = false): Promise<RuntimeStatus> {
+  if (isTauri()) return invoke<RuntimeStatus>("codex_status", { forceRefresh });
   return { available: false, version: "", codexHome: "", mode: "unavailable" };
 }
 
@@ -63,9 +63,9 @@ function formatLastUsed(timestamp: number) {
   return `${Math.floor(seconds / 86_400)}d ago`;
 }
 
-export async function scanCodexEnvironment(workspacePath?: string, profile?: string): Promise<CodexEnvironment | null> {
+export async function scanCodexEnvironment(workspacePath?: string, profile?: string, forceRefresh = false): Promise<CodexEnvironment | null> {
   if (!isTauri()) return null;
-  const snapshot = await invoke<NativeEnvironment>("scan_codex_environment", { workspacePath, profile });
+  const snapshot = await invoke<NativeEnvironment>("scan_codex_environment", { workspacePath, profile, ...(forceRefresh ? { forceRefresh } : {}) });
   return {
     ...snapshot,
     workspaces: snapshot.workspaces.map((workspace, index) => ({

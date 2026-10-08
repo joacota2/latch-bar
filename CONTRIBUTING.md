@@ -42,7 +42,7 @@ React renders Studio and the separate native Context Bar window. Both communicat
 | Area | Entry points and responsibilities |
 | --- | --- |
 | Selection and replacement | `src-tauri/src/platform/`: platform adapter, macOS Accessibility and guarded clipboard fallback; Windows is a placeholder. |
-| Context Bar | `src/components/ContextBarWindow.tsx`: selected context, streamed answers, replacement, and follow-ups. |
+| Context Bar | `contextSession.ts` is the pure lifecycle controller; `runtimeEvents.ts` buffers transport events, `approvals.ts` validates disclosure, `outputActions.ts` dispatches output, and `components/context/` renders presentation. `ContextBarWindow.tsx` connects them to native handles. |
 | Codex | `src-tauri/src/app_server.rs` and `runtime.rs`: runtime discovery, execution, approvals, cancellation, and shutdown. |
 | Prompt context | `src/services/promptBuilder.ts`: selection policy, escaping, and context limits. |
 | Persistence | `src-tauri/src/persistence.rs` and `src/store/LatchStore.tsx`: shared desktop state and frontend state management. |
@@ -56,7 +56,12 @@ Studio and the Context Bar share `latch-state.json` in Tauri's application data 
 Run the checks used by CI:
 
 ```bash
+npm run format:check
+npm run lint
 npm test
+npx playwright install webkit
+npm run test:browser
+npm run check:native
 npm run build
 npm run check:version
 npm run licenses:check
@@ -92,3 +97,15 @@ Release Please maintains a release pull request with synchronized versions and `
 ## Security checks
 
 Report vulnerabilities privately using [SECURITY.md](SECURITY.md). Before submitting, run `gitleaks git . --log-opts="--all" --redact=100`, `npm audit`, and `python3 scripts/audit-dependencies.py` (requires Cargo audit 0.22.2). CI runs these checks on pull requests, pushes to main, and weekly. New or expired Rust advisory exceptions fail the audit; do not add broad ignore rules. Any supported-platform change requires reviewing the advisory policy as well as attribution.
+
+## Reliability and compatibility contracts
+
+Keep macOS 12.0 support and the Safari 15 build target. Syntax transpilation does not polyfill APIs: use the secure UUID helper, load `wicg-inert` before rendering, and keep ordinary focus outlines and reduced-motion status text. Avoid `Object.hasOwn`, `.at()`, and unguarded `crypto.randomUUID`. `replaceAll`, optional chaining, and nullish coalescing are supported by the selected baseline. Browser-only Web Locks persistence is intentionally unavailable on old engines; desktop persistence uses native revision checks.
+
+Every Context Bar operation belongs to a session generation and run. Replacement requires the original editor/process/text and an exact Accessibility range; marker-only editors are copy-only. Never retry an unverified dispatch. Approval IDs preserve number/string identity, stay queued until successfully answered, and are validated again by the native process registry. Unknown permission formats can only be denied or cancelled.
+
+Environment caches are keyed by workspace and profile. Never resolve an agent's Skills against the base catalog or another editor's catalog. Stable Skill identities include source, canonical path, and plugin identity where supplied. Legacy slugs migrate only when unique; missing and ambiguous references block execution. Agent exports are version 2; version 1 and unwrapped imports remain supported. State schema 2 drops previously nonfunctional fields without discarding other user data.
+
+Completed Studio handoffs are native memory only and omit selected text/conversation. Subscribe before reading; acknowledge after the result view mounts. The Context Bar keeps its answer until acknowledgement, with a five-second retryable timeout. Never backfill a temporary answer into history. Reset epochs reject old transfers and writes.
+
+`cargo test` runs a scripted Python app-server through the production pipe driver without Codex, login, or network access. WebKit/axe tests cover keyboard dialogs, compatibility fallbacks, local fonts and contrast. They do not certify macOS Accessibility or an old OS WebKit. See the signed-app release matrix in `docs/RELEASING.md`. Keep mechanical formatting in a separate change from behavior whenever practical. Use `npm run format` and `cargo fmt` locally; CI checks never rewrite files.

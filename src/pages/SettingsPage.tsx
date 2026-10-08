@@ -47,7 +47,7 @@ export function SettingsPage() {
   };
   const row = (title: string, description: string, checked: boolean, onChange: (value: boolean) => void, disabled = false) => <div className="setting-row"><div><strong>{title}</strong><p>{description}</p></div><Toggle disabled={disabled} checked={checked} onChange={onChange} label={title} /></div>;
   const checkCodex = async () => {
-    const [status] = await Promise.all([getRuntimeStatus(), refreshCodexEnvironment()]);
+    const [status] = await Promise.all([getRuntimeStatus(true), refreshCodexEnvironment(undefined, undefined, true)]);
     setRuntime(status);
   };
   const accountLabel = codexEnvironment?.account.signedIn

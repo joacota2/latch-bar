@@ -4,7 +4,6 @@ export type SandboxMode = "read-only" | "workspace-write" | "full-access";
 export type ApprovalPolicy = "always-ask" | "when-needed" | "never";
 export type WorkspaceMode = "none" | "active-application" | "ask-each-time" | "fixed" | "recent-project";
 export type RunStatus = "running" | "approval" | "completed" | "failed" | "cancelled";
-export type ContextBarState = "idle" | "running" | "approval" | "result" | "error";
 
 export interface CodexReasoningEffort {
   id: string;
@@ -105,8 +104,6 @@ export interface ContextPolicy {
   includeSelection: boolean;
   includeApplicationName: boolean;
   includeWindowTitle: boolean;
-  includeClipboard: boolean;
-  includeScreenshot: boolean;
   includeWorkspaceMetadata: boolean;
   maxSelectionCharacters: number;
   excludedApplications: string[];
@@ -161,6 +158,7 @@ export interface McpServer {
 
 export interface CodexSkill {
   id: string;
+  legacyId?: string;
   name: string;
   description: string;
   source: "user" | "repo" | "system" | "admin";
@@ -202,8 +200,6 @@ export interface Run {
 }
 
 export interface AppSettings {
-  launchAtLogin: boolean;
-  showMenuBar: boolean;
   contextBarEnabled: boolean;
   selectionDelay: number;
   minimumCharacters: number;
@@ -221,4 +217,5 @@ export interface NativeSelection {
   processId: number;
   bounds: { x: number; y: number; width: number; height: number };
   replacementCapability: "none" | "accessibility" | "clipboardPaste";
+  replacementUnavailableReason?: string;
 }

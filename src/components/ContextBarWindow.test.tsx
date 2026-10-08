@@ -1,3 +1,4 @@
+import { emptyCatalog } from "../test/environment";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   replaceNativeSelection: vi.fn(),
 }));
 
+vi.mock("../services/transientResults", () => ({ handoffResult: vi.fn(async () => { await mocks.openStudio(true); }) }));
+
 vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => undefined),
   listen: vi.fn(async (event: string, handler: EventHandler) => {
@@ -50,7 +53,7 @@ vi.mock("../services/runtime", () => ({
   resizeContextBar: mocks.resizeContextBar,
   setContextBarFocusable: mocks.setContextBarFocusable,
   respondToApproval: vi.fn(async () => undefined),
-  scanCodexEnvironment: vi.fn(async () => null),
+  scanCodexEnvironment: vi.fn(async () => emptyCatalog),
   setOverlayPinned: mocks.setOverlayPinned,
   startNativeRun: mocks.startNativeRun,
   stopNativeRun: mocks.stopNativeRun,
@@ -152,6 +155,24 @@ describe("Context Bar lifecycle", () => {
     await waitFor(() => expect(mocks.stopNativeRun).toHaveBeenCalledWith("run-1"));
     await user.click(await screen.findByRole("button", { name: "Run Improve writing" }));
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not let a late continuation command response downgrade a completed result", async () => {
+    const user = userEvent.setup(); await mountContextBar();
+    emit("native-selection", selection("Original", 20));
+    await user.click(screen.getByRole("button", { name: "Run Improve writing" }));
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
+    const complete = (text: string) => emit("codex-event", { runId: "run-1", message: { method: "turn/completed", params: { turn: { status: "completed", items: [{ type: "agentMessage", text }] } } } });
+    complete("First answer"); await screen.findByText("First answer");
+    let release!: () => void;
+    mocks.continueNativeRun.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const input = screen.getByRole("textbox", { name: "Additional instructions" });
+    await user.type(input, "Again"); await user.click(within(input.closest("form")!).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(mocks.continueNativeRun).toHaveBeenCalled());
+    complete("Second answer"); await screen.findByText("Second answer");
+    await act(async () => release());
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("latch-bar-state-v1")!).runs[0]).toMatchObject({ status: "completed", finalResponse: "Second answer" }));
   });
 
   it("expands for streaming and continues with extra instructions without opening Studio", async () => {

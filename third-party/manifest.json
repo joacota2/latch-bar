@@ -5,21 +5,23 @@
     "x86_64-apple-darwin"
   ],
   "input_sha256": {
-    "package.json": "69b4d318ea1597066d23e8562e3f9da5c442a1e1ba76af28f11e058c40bed449",
-    "package-lock.json": "c6a5c3d8e6d705f078077cfd25c0b493dbcfa753e747ca8e98ff791822d33451",
+    "package.json": "bc6d8fd3c1e926a5fbb644e12c29d7aa7912403819beb091ee6b6b591d92d3dd",
+    "package-lock.json": "2d78e166174a0bdbaa78514674d45a32bc5ee72205f061c7bcc13ac7bf918a08",
     "src-tauri/Cargo.toml": "6aae37ae7c431b9b24b6c2a0c14f13567a3636d06e17b42d5fbf9c0faf21fb03",
     "src-tauri/Cargo.lock": "a0ca7c6b692d3d36805b941418d59c502a63f47c5e86b8cd892f62a8cedc41f9",
-    "third-party/supplements.json": "d9fde90d0304507fcd4641d56fb9985711636d26ea8ad2690f7f80543c1a7af4",
-    "scripts/third-party.py": "358468e745550d1d68b05d40f3b9fa522e0844027368f177f52604a5f6534c90",
-    "src/styles.css": "e954199d4bc2c122fd2c6d38b5b119710269020ee8c01fec9b6fed709258e6c5",
-    "third-party/provenance.json": "addad14f474af848f41cfcf0c2d9977e5f9387321ed906be7a8d40d7f7ecccbb",
-    "vite.config.ts": "ab3e554279a065d75024b82c830d7dc3f4cda42c567fce24223890457386309f",
+    "third-party/supplements.json": "1190e9afbe20076448526934a945e966787b0955f58329537c5afdfa8d602f5a",
+    "scripts/third-party.py": "9b23b3f5bd0d9fa6f85b4d1527e00abed5907dc5b85004142bb1bec35f708d75",
+    "src/styles.css": "4e729df4645ff3233f36b90a8bca9717ba5f0531e8338a49a4cbaadf37488827",
+    "third-party/provenance.json": "1fb58100410d3ac5785ea3273a66fa6a4a932924dd461dae43c22533f6902f1f",
+    "vite.config.ts": "561e93da7c87afd4c121970d04df3294331f95d53cd1296ff10fe35d7cffa994",
     "third-party/supplemental/0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9.txt": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
     "third-party/supplemental/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
     "third-party/supplemental/23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
     "third-party/supplemental/308028e93fcf84972523cdf6e616f73168546b4953895f516d01287f16fe7bee.txt": "308028e93fcf84972523cdf6e616f73168546b4953895f516d01287f16fe7bee",
     "third-party/supplemental/3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04.txt": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04",
     "third-party/supplemental/58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
+    "third-party/supplemental/605b661b64cbfd993d400c506b28d8a2f78a482ec764789c7308aac86eaee74b.txt": "605b661b64cbfd993d400c506b28d8a2f78a482ec764789c7308aac86eaee74b",
+    "third-party/supplemental/7cfe4d7aaf9aee3cecb77b3b6a075936b406a94a312bdfd3db33f18de9beb9c6.txt": "7cfe4d7aaf9aee3cecb77b3b6a075936b406a94a312bdfd3db33f18de9beb9c6",
     "third-party/supplemental/7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54.txt": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
     "third-party/supplemental/89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607.txt": "89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607",
     "third-party/supplemental/9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1.txt": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1",
@@ -29,7 +31,7 @@
     "third-party/supplemental/c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae.txt": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
   },
   "output_sha256": {
-    "THIRD_PARTY_NOTICES.txt": "5b973a6ef2ca11cf28bb382920d15d2d07b15e981037dc68c0500ae556afe239",
+    "THIRD_PARTY_NOTICES.txt": "010c86f19d33017a056ac4a7c5069f9abfe7f9ff7469d5e87c7785aac829a4e9",
     "third-party/sources/cssparser-macros-0.6.1.crate": "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331",
     "third-party/sources/cssparser-0.36.0.crate": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
     "third-party/sources/dtoa-short-0.3.5.crate": "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87",
@@ -6305,6 +6307,21 @@
       ]
     },
     {
+      "id": "npm:focus-trap@8.2.3",
+      "name": "focus-trap",
+      "version": "8.2.3",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/focus-trap/-/focus-trap-8.2.3.tgz",
+      "integrity": "sha512-LTNHZwcFM7bSdU1cG1ExoaTEzoGmdjw+EzDotolZmLTCbm0ll2k6J3NL+WfqP14nGLxAp+XDJgwlT2DtNhcukA==",
+      "notices": [
+        {
+          "origin": "LICENSE",
+          "text_sha256": "b8d0347312c547c22802b39e495bc8f75d1a27bd69a51950fe5dcf8529b05070"
+        }
+      ]
+    },
+    {
       "id": "npm:lucide-react@0.468.0",
       "name": "lucide-react",
       "version": "0.468.0",
@@ -6386,6 +6403,21 @@
       ]
     },
     {
+      "id": "npm:tabbable@6.5.0",
+      "name": "tabbable",
+      "version": "6.5.0",
+      "ecosystem": "npm",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/tabbable/-/tabbable-6.5.0.tgz",
+      "integrity": "sha512-wieBHXygIm7OyQOu5hQlkk62/WyCFYGlWg7L6/ZCUZwx0o398Zkn4pVmMyfYhfMG8kGrj/Krt8eIk6UKC6VzwA==",
+      "notices": [
+        {
+          "origin": "LICENSE",
+          "text_sha256": "8e714750725e75c8b31172ef84c0805f94873f86e3b5cfca8a948553f0778fa1"
+        }
+      ]
+    },
+    {
       "id": "npm:vite@7.3.6",
       "name": "vite",
       "version": "7.3.6",
@@ -6400,6 +6432,30 @@
           "text_sha256": "a77a1c089806b39ad339535bdf3677f636c91d96693e8ad7b11fe733f650ea64"
         }
       ]
+    },
+    {
+      "id": "npm:wicg-inert@3.1.3",
+      "name": "wicg-inert",
+      "version": "3.1.3",
+      "ecosystem": "npm",
+      "license": "W3C-20150513",
+      "source": "https://registry.npmjs.org/wicg-inert/-/wicg-inert-3.1.3.tgz",
+      "integrity": "sha512-5L0PKK7iP+0Q/jv2ccgmkz/pfXbumZtlEyWS/xnX+L+Og3f7WjL4+iEs18k4IuldOX3PgGpza3qGndL9xUBjCQ==",
+      "notices": [
+        {
+          "origin": "LICENSE.md",
+          "text_sha256": "34982c639ae391391ff5a14fe6a7883911d55301370edb4f1487c4bc332a2f72"
+        },
+        {
+          "origin": "https://www.w3.org/copyright/software-license-2015/",
+          "text_sha256": "7cfe4d7aaf9aee3cecb77b3b6a075936b406a94a312bdfd3db33f18de9beb9c6"
+        },
+        {
+          "origin": "https://www.w3.org/copyright/software-license-2023/",
+          "text_sha256": "605b661b64cbfd993d400c506b28d8a2f78a482ec764789c7308aac86eaee74b"
+        }
+      ],
+      "review_note": "The package declares W3C-20150513 and its source header links the 2015 license. LICENSE.md links the 2023 version. Preserve both full notices alongside the upstream notice. Latch bundles the unmodified inert polyfill with normal JavaScript build transformations; no upstream source patches. Both texts permit copying and distribution with notices and disclaimers retained, and prohibit unauthorized trademark publicity."
     },
     {
       "id": "npm:zod@3.25.76",
@@ -6421,7 +6477,14 @@
     {
       "name": "dmsans",
       "license": "OFL-1.1",
-      "delivery": "Referenced through Google Fonts in src/styles.css; font binaries are not vendored.",
+      "delivery": "Bundled locally in public/fonts/DMSans[opsz,wght].ttf; loaded offline by src/styles.css.",
+      "binary_files": [
+        {
+          "path": "public/fonts/DMSans[opsz,wght].ttf",
+          "url": "https://raw.githubusercontent.com/google/fonts/c26e50af610a8300ad53a2b4955828e329a52d39/ofl/dmsans/DMSans%5Bopsz%2Cwght%5D.ttf",
+          "sha256": "4eed9b02066ffd572938b7076f87ce0a6df0ecead8088f884ade33e708073ddc"
+        }
+      ],
       "notices": [
         {
           "origin": "https://raw.githubusercontent.com/google/fonts/c26e50af610a8300ad53a2b4955828e329a52d39/ofl/dmsans/OFL.txt",
@@ -6432,7 +6495,14 @@
     {
       "name": "manrope",
       "license": "OFL-1.1",
-      "delivery": "Referenced through Google Fonts in src/styles.css; font binaries are not vendored.",
+      "delivery": "Bundled locally in public/fonts/Manrope[wght].ttf; loaded offline by src/styles.css.",
+      "binary_files": [
+        {
+          "path": "public/fonts/Manrope[wght].ttf",
+          "url": "https://raw.githubusercontent.com/google/fonts/16c2976c68c3137c09c69c8e9d3deada699d157e/ofl/manrope/Manrope%5Bwght%5D.ttf",
+          "sha256": "d0639be45d0af36e798172419d7bd173c4bd4f29e2b76cbb69db1d11bf8b0a40"
+        }
+      ],
       "notices": [
         {
           "origin": "https://raw.githubusercontent.com/google/fonts/16c2976c68c3137c09c69c8e9d3deada699d157e/ofl/manrope/OFL.txt",

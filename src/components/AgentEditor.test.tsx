@@ -135,7 +135,7 @@ describe("Codex-discovered agent options", () => {
     await user.click(screen.getByRole("button", { name: "JSON" }));
     const editor = screen.getByRole("textbox", { name: "Agent JSON configuration" });
     const exported = JSON.parse(editor.textContent || (editor as HTMLTextAreaElement).value);
-    expect(exported).toMatchObject({ version: 1, agent: { name: "Improve writing" } });
+    expect(exported).toMatchObject({ version: 2, agent: { name: "Improve writing" } });
     expect(exported.agent).not.toHaveProperty("id");
     expect(exported.agent).not.toHaveProperty("createdAt");
 
