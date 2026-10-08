@@ -15,7 +15,9 @@ function packageVersionFromToml(contents, packageName) {
 }
 
 function rootPackageVersionFromToml(contents) {
-  const packageSection = contents.split(/^\[package\]\s*$/m)[1]?.split(/^\[/m)[0];
+  const packageSection = contents
+    .split(/^\[package\]\s*$/m)[1]
+    ?.split(/^\[/m)[0];
   return packageSection?.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1];
 }
 
@@ -27,19 +29,19 @@ const [
   cargoToml,
   cargoLock,
 ] = await Promise.all([
-    readJson("package.json"),
-    readJson("package-lock.json"),
-    readJson("src-tauri/tauri.conf.json"),
-    readJson("release-please-config.json"),
-    readFile(new URL("src-tauri/Cargo.toml", root), "utf8"),
-    readFile(new URL("src-tauri/Cargo.lock", root), "utf8"),
-  ]);
+  readJson("package.json"),
+  readJson("package-lock.json"),
+  readJson("src-tauri/tauri.conf.json"),
+  readJson("release-please-config.json"),
+  readFile(new URL("src-tauri/Cargo.toml", root), "utf8"),
+  readFile(new URL("src-tauri/Cargo.lock", root), "utf8"),
+]);
 
 // GenericToml tags scalar values so it can replace them in place without
 // reformatting the file. Filters must therefore inspect the tag's value field.
-const cargoLockExtraFile = releasePleaseConfig.packages?.["."]?.["extra-files"]?.find(
-  ({ path }) => path === "src-tauri/Cargo.lock",
-);
+const cargoLockExtraFile = releasePleaseConfig.packages?.["."]?.[
+  "extra-files"
+]?.find(({ path }) => path === "src-tauri/Cargo.lock");
 const cargoLockJsonPath = "$.package[?(@.name.value == 'latch-bar')].version";
 if (cargoLockExtraFile?.jsonpath !== cargoLockJsonPath) {
   throw new Error(
@@ -58,7 +60,9 @@ const versions = new Map([
 
 const missing = [...versions].filter(([, version]) => !version);
 if (missing.length > 0) {
-  throw new Error(`Could not read a version from: ${missing.map(([name]) => name).join(", ")}`);
+  throw new Error(
+    `Could not read a version from: ${missing.map(([name]) => name).join(", ")}`,
+  );
 }
 
 const distinct = new Set(versions.values());
@@ -72,7 +76,9 @@ if (distinct.size !== 1) {
 const [version] = distinct;
 const releaseTag = process.env.RELEASE_TAG;
 if (releaseTag && releaseTag !== `v${version}`) {
-  throw new Error(`Release tag ${releaseTag} does not match application version v${version}`);
+  throw new Error(
+    `Release tag ${releaseTag} does not match application version v${version}`,
+  );
 }
 
 console.log(`All release metadata uses version ${version}.`);

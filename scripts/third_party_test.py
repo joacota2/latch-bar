@@ -32,6 +32,7 @@ class AttributionTests(unittest.TestCase):
             "node_modules/example": {"version": "2.0.0"}}})
         (self.root / "src-tauri/Cargo.toml").write_text('[package]\nname = "app"\nversion = "1.0.0"\n')
         (self.root / "src-tauri/Cargo.lock").write_text('[[package]]\nname = "app"\nversion = "1.0.0"\n')
+        self.write_json("third-party/supplements.json", {"assets": []})
         self.write_json("third-party/provenance.json", {"first_party_assets_sha256": {}})
         self.source = "third-party/sources/example-2.0.0.crate"
         (self.root / self.source).parent.mkdir()
@@ -92,6 +93,23 @@ class AttributionTests(unittest.TestCase):
         (self.root / "public/new.svg").write_text("unreviewed icon")
         with self.assertRaisesRegex(ValueError, "Assets changed"):
             self.check()
+
+    def test_fonts_are_verified_separately_from_first_party_assets(self):
+        font = self.root / "public/fonts/font.ttf"
+        font.parent.mkdir(parents=True)
+        font.write_bytes(b"font fixture")
+        digest = licenses.sha256(font.read_bytes())
+        record = {"first_party_assets_sha256": {}, "third_party_assets_sha256": {"public/fonts/font.ttf": digest}}
+        self.write_json("third-party/provenance.json", record)
+        self.write_json("third-party/supplements.json", {"assets": [{"binary_files": [{"path": "public/fonts/font.ttf", "sha256": digest}]}]})
+        licenses.check_provenance(self.root)
+        font.write_bytes(b"modified font")
+        with self.assertRaisesRegex(ValueError, "Assets changed"):
+            licenses.check_provenance(self.root)
+        record["first_party_assets_sha256"] = record["third_party_assets_sha256"]
+        self.write_json("third-party/provenance.json", record)
+        with self.assertRaisesRegex(ValueError, "ownership overlaps"):
+            licenses.check_provenance(self.root)
 
     def test_bundle_requires_every_notice_and_source(self):
         app = Path(self.temp.name) / "Fixture.app"

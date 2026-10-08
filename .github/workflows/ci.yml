@@ -32,6 +32,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
+        with:
+          components: rustfmt, clippy
+
       - name: Install dependencies
         run: npm ci
 
@@ -40,6 +43,18 @@ jobs:
 
       - name: Verify third-party attribution and asset provenance
         run: npm run licenses:check
+
+      - name: Check formatting and frontend lint
+        run: npm run format:check && npm run lint
+
+      - name: Check Rust formatting and Clippy
+        run: npm run check:native
+
+      - name: Install WebKit test browser
+        run: npx playwright install webkit
+
+      - name: Test WebKit and accessibility
+        run: npm run test:browser
 
       - name: Test frontend
         run: npm test

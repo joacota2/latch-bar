@@ -52,14 +52,14 @@ Create an environment named `macos-release` under **Settings → Environments** 
 
 Add these environment secrets:
 
-| Secret | Value |
-| --- | --- |
-| `APPLE_CERTIFICATE` | Base64-encoded Developer ID Application `.p12` |
-| `APPLE_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12` |
-| `APPLE_SIGNING_IDENTITY` | Full Developer ID Application identity |
-| `APPLE_API_ISSUER` | App Store Connect API Issuer ID |
-| `APPLE_API_KEY` | App Store Connect API Key ID |
-| `APPLE_API_PRIVATE_KEY` | Base64-encoded App Store Connect `.p8` |
+| Secret                       | Value                                          |
+| ---------------------------- | ---------------------------------------------- |
+| `APPLE_CERTIFICATE`          | Base64-encoded Developer ID Application `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12`        |
+| `APPLE_SIGNING_IDENTITY`     | Full Developer ID Application identity         |
+| `APPLE_API_ISSUER`           | App Store Connect API Issuer ID                |
+| `APPLE_API_KEY`              | App Store Connect API Key ID                   |
+| `APPLE_API_PRIVATE_KEY`      | Base64-encoded App Store Connect `.p8`         |
 
 Keep all Apple and updater signing secrets in the protected `macos-release` environment. Only `RELEASE_PLEASE_TOKEN` belongs at repository scope. Require `joacota2` to approve releases, allow self-review for the solo maintainer, and disable administrator bypass of the release approval gate.
 
@@ -104,10 +104,10 @@ Users on older builds that require a GitHub login should install the latest DMG 
 
 The updater uses a separate signing key from Apple Developer ID. The public key is committed in `src-tauri/tauri.conf.json`; these private values belong in the `macos-release` GitHub environment:
 
-| Secret | Value |
-| --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | Full contents of the Tauri updater private key |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password protecting that key |
+| Secret                               | Value                                          |
+| ------------------------------------ | ---------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of the Tauri updater private key |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password protecting that key                   |
 
 The initial key and password were provisioned outside the repository at `~/.tauri/latch-bar/updater.key` and `~/.tauri/latch-bar/updater.password`, with owner-only permissions. The public copy is `updater.key.pub`. Back up the private key and password in a secure password manager: GitHub secrets cannot be downloaded, and replacing this key without a migration would strand existing installations.
 
@@ -136,3 +136,21 @@ On both an Intel Mac and an Apple Silicon Mac:
 5. Recheck installed version and retained data after restart. Do not claim either architecture validated until its actual install/update test passes.
 
 Automated checks: `npm run check:version`, `npm test` (includes manifest/signature tests), `npm run build`, `cargo check --manifest-path src-tauri/Cargo.toml --locked`, and `cargo test --manifest-path src-tauri/Cargo.toml --locked`.
+
+### macOS 12.0 reliability release gate
+
+Do not publish this reliability change until the following signed-app matrix has recorded passing evidence. Current WebKit automation and feature-disabled tests do not replace either native environment.
+
+| Required environment                              | Status for this implementation                            | Evidence required                                                    |
+| ------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------- |
+| macOS 12.0, original supported WebKit, signed app | **BLOCKED — not available in this workspace**             | OS/build version, app version/signature, tester, date, results below |
+| Current macOS, signed app                         | **BLOCKED — signed interactive app matrix not performed** | OS/build version, app version/signature, tester, date, results below |
+| Intel and Apple Silicon install/update/relaunch   | **BLOCKED — signed update matrix not performed**          | Both architectures and two increasing signed test versions           |
+
+For both OS environments verify TextEdit, browser textarea/contenteditable, Electron editor, repeated selected text at different ranges, emoji/UTF-16 boundaries, missing/disappearing ranges, changed editor/process, protected fields, clipboard contention, and an unverified dispatch that cannot retry. Confirm overlay focus/pinning and edge/fullscreen behavior.
+
+Verify overlapping approvals show command, cwd, reason and access scope before action; Deny/Cancel remain available for unsupported scopes. With history both on and off, open a result in an initially closed Studio, remount it, force acknowledgement timeout, retry, and reset during transfer. Confirm no duplicate history, no selected text in the handoff, and no temporary result in saved files or later history backfill.
+
+Exercise keyboard focus and nested Escape, dirty form/JSON prompts on all dismissal routes including the native close button, invalid JSON, failed saves, concurrent revision conflict, reduced motion, local fonts while offline, and inert loading/update overlays. Use the isolated update endpoint procedure above for update/relaunch tests.
+
+Automated gates additionally require `npm run format:check`, `npm run lint`, `npm run test:browser`, and `npm run check:native`, alongside every existing test, version, attribution, signing and security check. Keep existing narrow advisory exceptions; never broaden them to make this release pass. No release is published by the implementation task.

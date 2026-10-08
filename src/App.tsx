@@ -1,3 +1,5 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { TransientResultProvider } from "./store/TransientResultStore";
 import { listen } from "@tauri-apps/api/event";
 import { AgentEditor } from "./components/AgentEditor";
 import { Sidebar } from "./components/Sidebar";
@@ -26,13 +28,34 @@ const pages = {
 };
 
 export function App() {
-  return <UpdateProvider><PermissionProvider><Studio /></PermissionProvider></UpdateProvider>;
+  return (
+    <UpdateProvider>
+      <PermissionProvider>
+        <TransientResultProvider>
+          <Studio />
+        </TransientResultProvider>
+      </PermissionProvider>
+    </UpdateProvider>
+  );
 }
 
 function Studio() {
   const { installing } = useUpdates();
-  const { ready, persistenceError, reloadState, activeNav, setActiveNav, selectedAgentId, toasts, settings } = useLatch();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("latch-sidebar-collapsed") === "true");
+  const {
+    ready,
+    persistenceError,
+    reloadState,
+    activeNav,
+    setActiveNav,
+    selectedAgentId,
+    toasts,
+    settings,
+    requestCloseEditor,
+    notify,
+  } = useLatch();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("latch-sidebar-collapsed") === "true",
+  );
 
   useEffect(() => {
     if (!ready) return;
@@ -42,8 +65,27 @@ function Studio() {
   useEffect(() => {
     if (!isTauri()) return;
     const subscription = listen("show-runs", () => setActiveNav("runs"));
-    return () => { void subscription.then((dispose) => dispose()); };
+    return () => {
+      void subscription.then((dispose) => dispose());
+    };
   }, [setActiveNav]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const subscription = getCurrentWindow().onCloseRequested((event) => {
+      event.preventDefault();
+      void requestCloseEditor()
+        .then(async (allowed) => {
+          if (allowed) await getCurrentWindow().hide();
+        })
+        .catch(() =>
+          notify("Could not hide Studio. Your saved data is still available."),
+        );
+    });
+    return () => {
+      void subscription.then((dispose) => dispose());
+    };
+  }, [requestCloseEditor, notify]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((collapsed) => {
@@ -54,9 +96,20 @@ function Studio() {
   };
 
   return (
-    <div className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
-      {persistenceError && <div role="alert" className="info-banner persistence-banner">{persistenceError}<button onClick={() => void reloadState()}>Retry</button></div>}
-      {!ready && !persistenceError && <p className="info-banner persistence-banner" role="status">Loading local data…</p>}
+    <div
+      className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}
+    >
+      {persistenceError && (
+        <div role="alert" className="info-banner persistence-banner">
+          {persistenceError}
+          <button onClick={() => void reloadState()}>Retry</button>
+        </div>
+      )}
+      {!ready && !persistenceError && (
+        <p className="info-banner persistence-banner" role="status">
+          Loading local data…
+        </p>
+      )}
       <div className="studio-content" inert={installing || !ready}>
         <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
         <div className="app-main">
@@ -67,7 +120,12 @@ function Studio() {
         </div>
         {selectedAgentId && <AgentEditor />}
         <div className="toast-stack" aria-live="polite">
-          {toasts.map((toast) => <div className="toast" key={toast.id}><span>✓</span>{toast.message}</div>)}
+          {toasts.map((toast) => (
+            <div className="toast" key={toast.id}>
+              <span>✓</span>
+              {toast.message}
+            </div>
+          ))}
         </div>
       </div>
       <UpdateOverlay />

@@ -1,4 +1,5 @@
 use crate::activity::{ActivityGate, RunActivity, RunPermit};
+use crate::runtime_events::RuntimeEvents;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -6,13 +7,13 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 const CONFIG_REQUEST_ID: &str = "latch:config";
@@ -31,6 +32,7 @@ pub struct RuntimeManager(
 
 struct RuntimeProcess {
     activity: RunActivity,
+    approvals: Arc<Mutex<crate::approvals::PendingApprovals>>,
     pending_turn_request: Arc<AtomicU64>,
     starting: Arc<AtomicBool>,
     child: Arc<Mutex<Child>>,
@@ -80,11 +82,15 @@ fn projectless_cwd_from_documents(documents: &Path) -> PathBuf {
     documents.join("Codex").join("Latch Bar")
 }
 
-pub(crate) fn projectless_cwd() -> Result<String, String> {
+pub(crate) fn projectless_path() -> Result<PathBuf, String> {
     let documents = dirs::document_dir()
         .or_else(|| dirs::home_dir().map(|home| home.join("Documents")))
         .ok_or("Could not resolve a Documents directory for projectless runs")?;
-    let cwd = projectless_cwd_from_documents(&documents);
+    Ok(projectless_cwd_from_documents(&documents))
+}
+
+pub(crate) fn projectless_cwd() -> Result<String, String> {
+    let cwd = projectless_path()?;
     fs::create_dir_all(&cwd)
         .map_err(|error| format!("Could not create the projectless run directory: {error}"))?;
     Ok(cwd.to_string_lossy().into_owned())
@@ -102,10 +108,7 @@ fn compact_title(value: &str) -> Option<String> {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    title = title
-        .trim_end_matches(|character| matches!(character, '.' | '?' | '!'))
-        .trim()
-        .to_string();
+    title = title.trim_end_matches(['.', '?', '!']).trim().to_string();
     if title.is_empty() {
         return None;
     }
@@ -222,28 +225,37 @@ pub async fn start_codex_run(
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         start_codex_run_blocking(
-            app,
+            RuntimeEvents::tauri(app),
             manager,
             agent,
             prompt,
             title_source,
-            permit,
-            generation,
+            (permit, generation),
+            Driver {
+                command: &crate::scanner::codex_app_server_command,
+                turn_start_timeout: std::time::Duration::from_secs(30),
+            },
         )
     })
     .await
     .map_err(|error| error.to_string())?
 }
 
+struct Driver<'a> {
+    command: &'a dyn Fn(Option<&str>) -> Result<Command, String>,
+    turn_start_timeout: std::time::Duration,
+}
+
 fn start_codex_run_blocking(
-    app: AppHandle,
+    app: RuntimeEvents,
     manager: RuntimeManager,
     agent: AgentRuntimeConfig,
     prompt: String,
     title_source: String,
-    permit: RunPermit,
-    generation: u64,
+    lease: (RunPermit, u64),
+    driver: Driver<'_>,
 ) -> Result<StartRunResponse, String> {
+    let (permit, generation) = lease;
     let run_id = Uuid::new_v4().to_string();
     let cwd = Some(match agent.workspace_mode.as_str() {
         "fixed" => {
@@ -267,7 +279,7 @@ fn start_codex_run_blocking(
         .codex_profile
         .as_deref()
         .filter(|profile| !profile.is_empty() && *profile != "default");
-    let mut command = crate::scanner::codex_app_server_command(profile);
+    let mut command = (driver.command)(profile)?;
     if let Some(cwd) = cwd
         .as_deref()
         .filter(|cwd| std::path::Path::new(cwd).is_dir())
@@ -304,7 +316,9 @@ fn start_codex_run_blocking(
     let starting = Arc::new(AtomicBool::new(true));
     let activity = RunActivity::new(permit);
     let pending_turn_request = Arc::new(AtomicU64::new(2));
+    let approvals = Arc::new(Mutex::new(crate::approvals::PendingApprovals::default()));
     let process = RuntimeProcess {
+        approvals: approvals.clone(),
         activity: activity.clone(),
         pending_turn_request: pending_turn_request.clone(),
         starting: starting.clone(),
@@ -390,22 +404,12 @@ fn start_codex_run_blocking(
         }
     });
 
-    let startup_pending = starting.clone();
-    let startup_child = child.clone();
-    let startup_app = app.clone();
-    let startup_run_id = run_id.clone();
-    let startup_activity = activity.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(30));
-        if startup_pending.swap(false, Ordering::SeqCst) {
-            let _ = startup_app.emit("codex-event", json!({"runId": startup_run_id, "message": {"error": {"message": "Codex did not start the turn within 30 seconds"}}}));
-            if let Ok(mut child) = startup_child.lock() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            startup_activity.finish();
+    {
+        let processes = manager.0.lock().map_err(|_| "Runtime state unavailable")?;
+        if let Some(process) = processes.get(&run_id) {
+            process.deadline(app.clone(), run_id.clone(), 2, driver.turn_start_timeout);
         }
-    });
+    }
     let event_name = format!("codex-event:{run_id}");
     let generic_run_id = run_id.clone();
     let stdin_reader = stdin.clone();
@@ -422,6 +426,9 @@ fn start_codex_run_blocking(
         .collect::<Vec<_>>();
     let event_app = app.clone();
     std::thread::spawn(move || {
+        let mut retired_turns = HashSet::<String>::new();
+        let mut initialized = false;
+        let mut configured = false;
         let mut title_thread_id: Option<String> = None;
         let mut title_output = String::new();
         let mut pending_title: Option<String> = None;
@@ -430,15 +437,31 @@ fn start_codex_run_blocking(
             let Ok(message) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
-            if message.get("id") == Some(&json!(0)) && message.get("result").is_some() {
-                if send(&stdin_reader, &json!({"method":"initialized"})).is_ok() {
-                    let _ = send(
-                        &stdin_reader,
-                        &json!({"id": CONFIG_REQUEST_ID, "method": "config/read", "params": {"includeLayers": false}}),
-                    );
-                }
+            let response_id = message.get("id").and_then(Value::as_u64);
+            if message.get("method").is_none()
+                && response_id
+                    .is_some_and(|id| id >= 2 && id != pending_turn_request.load(Ordering::SeqCst))
+            {
+                continue;
+            }
+            if response_id == Some(0) && initialized {
+                continue;
+            }
+            if message.get("id") == Some(&json!(0))
+                && message.get("result").is_some()
+                && send(&stdin_reader, &json!({"method":"initialized"})).is_ok()
+            {
+                initialized = true;
+                let _ = send(
+                    &stdin_reader,
+                    &json!({"id": CONFIG_REQUEST_ID, "method": "config/read", "params": {"includeLayers": false}}),
+                );
             }
             if message.get("id") == Some(&json!(CONFIG_REQUEST_ID)) {
+                if configured {
+                    continue;
+                }
+                configured = true;
                 match runtime_mcp_overrides(message.get("result"), &enabled_mcp_servers) {
                     Ok(config) => {
                         let mut request = thread_start_request.clone();
@@ -460,6 +483,9 @@ fn start_codex_run_blocking(
                 continue;
             }
             if message.get("id") == Some(&json!(1)) {
+                if thread_id.lock().expect("thread id lock").is_some() {
+                    continue;
+                }
                 if let Some(id) = message.pointer("/result/thread/id").and_then(Value::as_str) {
                     *thread_id.lock().expect("thread id lock") = Some(id.to_string());
                     let mut input =
@@ -565,6 +591,21 @@ fn start_codex_run_blocking(
                     title_name_sent = true;
                 }
             }
+            if !is_title_message {
+                let incoming_turn = message
+                    .pointer("/params/turnId")
+                    .or_else(|| message.pointer("/params/turn/id"))
+                    .and_then(Value::as_str);
+                if incoming_turn.is_some_and(|id| retired_turns.contains(id)) {
+                    continue;
+                }
+                if response_id == Some(pending_turn_request.load(Ordering::SeqCst)) {
+                    if let Some(id) = message.pointer("/result/turn/id").and_then(Value::as_str) {
+                        *turn_id.lock().expect("turn id lock") = Some(id.to_string());
+                        starting.store(false, Ordering::SeqCst);
+                    }
+                }
+            }
             if !is_title_message && message.get("method") == Some(&json!("turn/started")) {
                 if let Some(id) = message.pointer("/params/turn/id").and_then(Value::as_str) {
                     *turn_id.lock().expect("turn id lock") = Some(id.to_string());
@@ -582,8 +623,11 @@ fn start_codex_run_blocking(
                 continue;
             }
             if !is_title_message && message.get("method") == Some(&json!("turn/completed")) {
+                starting.store(false, Ordering::SeqCst);
                 if let Ok(mut active) = turn_id.lock() {
-                    *active = None;
+                    if let Some(id) = active.take() {
+                        retired_turns.insert(id);
+                    }
                 }
                 activity.finish();
             }
@@ -606,11 +650,22 @@ fn start_codex_run_blocking(
                 let _ = send(&stdin_reader, &response);
                 continue;
             }
+            if let Ok(mut pending) = approvals.lock() {
+                if message.get("method") == Some(&json!("turn/completed"))
+                    || message.get("error").is_some()
+                {
+                    pending.clear();
+                }
+                pending.insert(&message);
+            }
             let _ = event_app.emit(&event_name, &message);
             let _ = event_app.emit(
                 "codex-event",
                 json!({"runId":generic_run_id,"message":message}),
             );
+        }
+        if let Ok(mut pending) = approvals.lock() {
+            pending.clear();
         }
         starting.store(false, Ordering::SeqCst);
         activity.finish();
@@ -692,9 +747,25 @@ mod tests {
 
 #[tauri::command]
 pub fn continue_codex_run(
+    app: AppHandle,
     manager: State<RuntimeManager>,
     run_id: String,
     prompt: String,
+) -> Result<(), String> {
+    continue_run(
+        RuntimeEvents::tauri(app),
+        &manager,
+        run_id,
+        prompt,
+        std::time::Duration::from_secs(30),
+    )
+}
+fn continue_run(
+    events: RuntimeEvents,
+    manager: &RuntimeManager,
+    run_id: String,
+    prompt: String,
+    timeout: std::time::Duration,
 ) -> Result<(), String> {
     let processes = manager
         .0
@@ -718,6 +789,8 @@ pub fn continue_codex_run(
         .store(request_id, Ordering::SeqCst);
     *active_turn = None;
     drop(active_turn);
+    process.starting.store(true, Ordering::SeqCst);
+    process.deadline(events, run_id.clone(), request_id, timeout);
     let result = send(
         &process.stdin,
         &json!({
@@ -731,6 +804,7 @@ pub fn continue_codex_run(
         }),
     );
     if result.is_err() {
+        process.starting.store(false, Ordering::SeqCst);
         process.activity.finish();
     }
     result
@@ -743,21 +817,39 @@ pub fn respond_to_approval(
     request_id: Value,
     response: Value,
 ) -> Result<(), String> {
+    answer_approval(&manager, &run_id, &request_id, &response)
+}
+fn answer_approval(
+    manager: &RuntimeManager,
+    run_id: &str,
+    request_id: &Value,
+    response: &Value,
+) -> Result<(), String> {
     let processes = manager
         .0
         .lock()
         .map_err(|_| "Runtime manager is unavailable")?;
-    let process = processes.get(&run_id).ok_or("Run not found")?;
-    send(&process.stdin, &json!({"id":request_id,"result":response}))
+    let process = processes.get(run_id).ok_or("Run not found")?;
+    let mut pending = process
+        .approvals
+        .lock()
+        .map_err(|_| "Approval state unavailable")?;
+    pending.validate(request_id, response)?;
+    send(&process.stdin, &json!({"id":request_id,"result":response}))?;
+    pending.remove(request_id);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn interrupt_codex_run(manager: State<RuntimeManager>, run_id: String) -> Result<(), String> {
+    interrupt_run(&manager, &run_id)
+}
+fn interrupt_run(manager: &RuntimeManager, run_id: &str) -> Result<(), String> {
     let processes = manager
         .0
         .lock()
         .map_err(|_| "Runtime manager is unavailable")?;
-    let process = processes.get(&run_id).ok_or("Run not found")?;
+    let process = processes.get(run_id).ok_or("Run not found")?;
     let thread_id = process
         .thread_id
         .lock()
@@ -788,6 +880,50 @@ pub fn stop_codex_run(manager: State<RuntimeManager>, run_id: String) -> Result<
     Ok(())
 }
 
+impl RuntimeProcess {
+    fn deadline(
+        &self,
+        events: RuntimeEvents,
+        run_id: String,
+        request_id: u64,
+        timeout: std::time::Duration,
+    ) {
+        let pending = self.pending_turn_request.clone();
+        let starting = self.starting.clone();
+        let child = self.child.clone();
+        let activity = self.activity.clone();
+        let approvals = self.approvals.clone();
+        std::thread::spawn(move || {
+            let mut remaining = timeout;
+            while pending.load(Ordering::SeqCst) == request_id && starting.load(Ordering::SeqCst) {
+                let waiting_for_user = approvals
+                    .lock()
+                    .map(|pending| !pending.is_empty())
+                    .unwrap_or(false);
+                let before = std::time::Instant::now();
+                std::thread::sleep(remaining.min(std::time::Duration::from_millis(25)));
+                if !waiting_for_user {
+                    remaining = remaining.saturating_sub(before.elapsed());
+                }
+                if remaining.is_zero() {
+                    break;
+                }
+            }
+            if remaining.is_zero()
+                && pending.load(Ordering::SeqCst) == request_id
+                && starting.swap(false, Ordering::SeqCst)
+            {
+                let _ = events.emit("codex-event", json!({"runId":run_id,"message":{"error":{"message":"Codex did not start the turn within 30 seconds"}}}));
+                if let Ok(mut child) = child.lock() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                activity.finish();
+            }
+        });
+    }
+}
+
 impl Drop for RuntimeProcess {
     fn drop(&mut self) {
         self.starting.store(false, Ordering::SeqCst);
@@ -807,3 +943,7 @@ impl RuntimeManager {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_protocol_tests.rs"]
+mod protocol_tests;

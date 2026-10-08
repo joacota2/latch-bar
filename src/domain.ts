@@ -1,10 +1,12 @@
-export type NavKey = "agents" | "runs" | "mcps" | "skills" | "workspaces" | "settings";
+export type NavKey =
+  "agents" | "runs" | "mcps" | "skills" | "workspaces" | "settings";
 
 export type SandboxMode = "read-only" | "workspace-write" | "full-access";
 export type ApprovalPolicy = "always-ask" | "when-needed" | "never";
-export type WorkspaceMode = "none" | "active-application" | "ask-each-time" | "fixed" | "recent-project";
-export type RunStatus = "running" | "approval" | "completed" | "failed" | "cancelled";
-export type ContextBarState = "idle" | "running" | "approval" | "result" | "error";
+export type WorkspaceMode =
+  "none" | "active-application" | "ask-each-time" | "fixed" | "recent-project";
+export type RunStatus =
+  "running" | "approval" | "completed" | "failed" | "cancelled";
 
 export interface CodexReasoningEffort {
   id: string;
@@ -105,8 +107,6 @@ export interface ContextPolicy {
   includeSelection: boolean;
   includeApplicationName: boolean;
   includeWindowTitle: boolean;
-  includeClipboard: boolean;
-  includeScreenshot: boolean;
   includeWorkspaceMetadata: boolean;
   maxSelectionCharacters: number;
   excludedApplications: string[];
@@ -152,7 +152,15 @@ export interface McpServer {
   transport: "stdio" | "http" | "managed";
   enabled: boolean;
   authentication: "none" | "environment" | "bearer" | "oauth" | "unknown";
-  source: "effective" | "user" | "profile" | "project" | "system" | "enterprise" | "session" | "managed";
+  source:
+    | "effective"
+    | "user"
+    | "profile"
+    | "project"
+    | "system"
+    | "enterprise"
+    | "session"
+    | "managed";
   health: "unknown" | "connected" | "error" | "disabled";
   detail: string;
   configurable: boolean;
@@ -161,6 +169,7 @@ export interface McpServer {
 
 export interface CodexSkill {
   id: string;
+  legacyId?: string;
   name: string;
   description: string;
   source: "user" | "repo" | "system" | "admin";
@@ -202,8 +211,6 @@ export interface Run {
 }
 
 export interface AppSettings {
-  launchAtLogin: boolean;
-  showMenuBar: boolean;
   contextBarEnabled: boolean;
   selectionDelay: number;
   minimumCharacters: number;
@@ -221,4 +228,5 @@ export interface NativeSelection {
   processId: number;
   bounds: { x: number; y: number; width: number; height: number };
   replacementCapability: "none" | "accessibility" | "clipboardPaste";
+  replacementUnavailableReason?: string;
 }

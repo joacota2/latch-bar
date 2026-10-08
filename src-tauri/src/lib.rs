@@ -1,11 +1,15 @@
 mod activity;
 mod app_server;
+mod approvals;
+mod discovery;
 mod folder_access;
 mod persistence;
 mod platform;
 mod public_release;
 mod runtime;
+mod runtime_events;
 mod scanner;
+mod transient;
 mod updates;
 
 use tauri::Manager;
@@ -25,6 +29,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(persistence::Persistence::default())
+        .manage(transient::TransientResults::default())
         .manage(platform::PlatformState::default())
         .manage(runtime::RuntimeManager::default())
         .manage(updates::UpdateManager::default())
@@ -49,6 +54,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             studio_shortcut_registered,
+            transient::publish_transient_result,
+            transient::transient_result,
+            transient::acknowledge_transient_result,
+            transient::dismiss_transient_result,
             persistence::read_latch_state,
             persistence::write_latch_state,
             updates::update_state,

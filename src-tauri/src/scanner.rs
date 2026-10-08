@@ -155,6 +155,8 @@ pub struct McpSummary {
 #[serde(rename_all = "camelCase")]
 pub struct SkillSummary {
     id: String,
+    legacy_id: String,
+    plugin_id: Option<String>,
     name: String,
     description: String,
     source: String,
@@ -263,7 +265,7 @@ fn codex_candidates(directories: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf
     candidates
 }
 
-fn parse_codex_version(stdout: &[u8]) -> Vec<u64> {
+pub(crate) fn parse_codex_version(stdout: &[u8]) -> Vec<u64> {
     String::from_utf8_lossy(stdout)
         .split_whitespace()
         .last()
@@ -273,7 +275,7 @@ fn parse_codex_version(stdout: &[u8]) -> Vec<u64> {
         .collect()
 }
 
-fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command {
+pub(crate) fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command {
     let mut command = Command::new(executable);
     // npm's Codex wrapper uses /usr/bin/env node. Use the sibling Node from
     // this installation for both version probes and app-server launches.
@@ -292,81 +294,59 @@ fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command
     command
 }
 
+#[cfg(test)]
 fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
-    candidates
-        .into_iter()
-        .filter_map(|candidate| {
-            let output = command_for_executable(&candidate, directories)
-                .arg("--version")
-                .output()
-                .ok()
-                .filter(|output| output.status.success())?;
-            Some((parse_codex_version(&output.stdout), candidate))
-        })
-        .max_by(|left, right| left.0.cmp(&right.0))
-        .map(|(_, candidate)| candidate)
+    crate::discovery::newest(candidates, directories).map(|item| item.path)
 }
-
-fn resolve_codex_executable(directories: &[PathBuf]) -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("CODEX_BIN")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-    {
-        return Some(configured);
-    }
-    newest_codex_executable(
-        codex_candidates(directories, dirs::home_dir().as_deref()),
-        directories,
-    )
-}
-
-pub(crate) fn codex_command() -> Command {
+fn resolve_codex(force: bool) -> Result<(crate::discovery::Executable, Vec<PathBuf>), String> {
     let directories = command_directories();
-    let executable =
-        resolve_codex_executable(&directories).unwrap_or_else(|| PathBuf::from("codex"));
-    command_for_executable(&executable, &directories)
+    let executable = crate::discovery::resolve(
+        codex_candidates(&directories, dirs::home_dir().as_deref()),
+        &directories,
+        env::var_os("CODEX_BIN").map(PathBuf::from),
+        force,
+    )?;
+    Ok((executable, directories))
+}
+pub(crate) fn codex_command() -> Result<Command, String> {
+    let (executable, directories) = resolve_codex(false)?;
+    Ok(command_for_executable(&executable.path, &directories))
 }
 
 pub(crate) fn codex_spawn_error(error: std::io::Error) -> String {
+    crate::discovery::invalidate();
     if error.kind() == std::io::ErrorKind::NotFound {
         return "Codex was not found. Install the Codex app or the Codex CLI, then check Settings → Codex.".into();
     }
     format!("Could not start Codex app-server: {error}")
 }
 
-pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Command {
-    let mut command = codex_command();
+pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Result<Command, String> {
+    let mut command = codex_command()?;
     if let Some(profile) = profile.filter(|profile| !profile.is_empty() && *profile != "default") {
         command.arg("--profile").arg(profile);
     }
     command.arg("app-server");
-    command
+    Ok(command)
 }
 
 #[tauri::command]
-pub fn codex_status() -> RuntimeStatus {
-    let mut command = codex_command();
-    let path = Path::new(command.get_program())
-        .is_absolute()
-        .then(|| command.get_program().to_string_lossy().into_owned());
-    let output = command.arg("--version").output();
-    let (available, version) = match output {
-        Ok(result) if result.status.success() => (
-            true,
-            String::from_utf8_lossy(&result.stdout)
-                .trim()
-                .replace("codex-cli ", ""),
-        ),
-        _ => (false, "not found".into()),
-    };
-    let home = codex_home();
-    RuntimeStatus {
-        available,
-        version,
-        codex_home: home.to_string_lossy().into_owned(),
-        mode: "native".into(),
-        path: available.then_some(path).flatten(),
-    }
+pub async fn codex_status(force_refresh: Option<bool>) -> Result<RuntimeStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (executable, _) = resolve_codex(force_refresh.unwrap_or(false))?;
+        Ok(RuntimeStatus {
+            available: true,
+            version: executable
+                .version
+                .trim_start_matches("codex-cli ")
+                .to_string(),
+            codex_home: codex_home().to_string_lossy().into_owned(),
+            mode: "native".into(),
+            path: Some(executable.path.to_string_lossy().into_owned()),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 pub(crate) fn mcp_config_overrides(
@@ -793,6 +773,19 @@ fn parse_skills(response: Option<&Value>) -> Vec<SkillSummary> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
+            let path = fs::canonicalize(&path)
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or(path);
+            let source = skill
+                .get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or("user")
+                .to_string();
+            let plugin_id = skill
+                .get("pluginId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let id = format!("skill:v1:{}", json!([source, path, plugin_id]));
             let validation_errors = errors
                 .iter()
                 .filter(|(error_path, _)| {
@@ -801,26 +794,24 @@ fn parse_skills(response: Option<&Value>) -> Vec<SkillSummary> {
                 .map(|(_, message)| message.clone())
                 .collect::<Vec<_>>();
             skills.insert(
-                slug(name),
+                id.clone(),
                 SkillSummary {
-                    id: slug(name),
+                    id,
+                    legacy_id: slug(name),
+                    plugin_id,
                     name: name.into(),
                     description: skill
                         .get("description")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .into(),
-                    source: skill
-                        .get("scope")
-                        .and_then(Value::as_str)
-                        .unwrap_or("user")
-                        .into(),
-                    path,
+                    source,
+                    path: path.clone(),
                     enabled: skill
                         .get("enabled")
                         .and_then(Value::as_bool)
                         .unwrap_or(true),
-                    compatible: validation_errors.is_empty(),
+                    compatible: !path.is_empty() && validation_errors.is_empty(),
                     validation_errors,
                 },
             );
@@ -980,8 +971,12 @@ fn discover_profiles(home: &Path, config_response: Option<&Value>) -> Vec<String
 pub async fn scan_codex_environment(
     workspace_path: Option<String>,
     profile: Option<String>,
+    force_refresh: Option<bool>,
 ) -> Result<EnvironmentSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        if force_refresh.unwrap_or(false) {
+            resolve_codex(true)?;
+        }
         scan_codex_environment_blocking(workspace_path, profile)
     })
     .await
@@ -997,10 +992,14 @@ fn scan_codex_environment_blocking(
             return Err("Workspace must be an existing directory".into());
         }
     }
-    let cwd = workspace_path.map(expand_user_path).or_else(|| {
-        env::current_dir()
-            .ok()
-            .map(|path| path.to_string_lossy().into_owned())
+    let cwd = Some(match workspace_path {
+        Some(path) => fs::canonicalize(expand_user_path(path))
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .into_owned(),
+        None => crate::runtime::projectless_path()?
+            .to_string_lossy()
+            .into_owned(),
     });
     let profile = profile
         .as_deref()
@@ -1107,6 +1106,21 @@ fn scan_codex_environment_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skills_keep_distinct_paths_and_deduplicate_repeated_listings() {
+        let response = json!({"data":[{"skills":[
+            {"name":"Review", "path":"/a/SKILL.md", "scope":"user"},
+            {"name":"Review", "path":"/b/SKILL.md", "scope":"repo"},
+            {"name":"Review", "path":"/a/SKILL.md", "scope":"user"}
+        ]}]});
+        let skills = parse_skills(Some(&response));
+        assert_eq!(skills.len(), 2);
+        assert_ne!(skills[0].id, skills[1].id);
+        assert!(skills
+            .iter()
+            .all(|skill| skill.id.starts_with("skill:v1:") && skill.legacy_id == "review"));
+    }
 
     #[test]
     fn preserves_inherited_path_precedence_when_adding_install_locations() {

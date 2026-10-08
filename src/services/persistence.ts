@@ -1,3 +1,4 @@
+import { randomUUID } from "./compat";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "./runtime";
@@ -86,7 +87,7 @@ export async function changeBrowserState(
     if (current.epoch !== epoch) return null;
     const next = {
       revision: current.revision + 1,
-      epoch: reset ? crypto.randomUUID() : epoch,
+      epoch: reset ? randomUUID() : epoch,
       state: privateState(change(current.state)),
     };
     localStorage.setItem(

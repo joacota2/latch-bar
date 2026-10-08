@@ -1,0 +1,13 @@
+node_modules/
+dist/
+src-tauri/target/
+third-party/
+THIRD_PARTY_NOTICES.txt
+package-lock.json
+CHANGELOG.md
+docs/media/
+playwright-report/
+test-results/
+public/
+src-tauri/icons/
+src-tauri/gen/
