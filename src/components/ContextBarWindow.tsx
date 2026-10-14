@@ -21,6 +21,8 @@ import {
 } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
 import { installingUpdate, onUpdateState } from "../services/updates";
+import { codexFailure } from "../services/codexErrors";
+import { CodexRunError } from "./CodexRunError";
 
 type BarState = "idle" | "running" | "approval" | "result" | "error";
 
@@ -127,10 +129,10 @@ export function ContextBarWindow() {
     if (state === "running" || state === "result") height = instructionOpen ? 360 : 300;
     if (state === "running" || state === "result") width = 660;
     if (state === "approval") { height = 220; width = 620; }
-    if (state === "error") { height = 195; width = 620; }
+    if (state === "error") { height = codexFailure(error).modelCompatibility ? 330 : 195; width = 620; }
     const anchorX = selection.bounds.x + selection.bounds.width / 2;
     void resizeContextBar(height, width, anchorX).catch(() => undefined);
-  }, [compactWidth, enabledAgents.length, instructionOpen, selection, showAll, state]);
+  }, [compactWidth, enabledAgents.length, error, instructionOpen, selection, showAll, state]);
   useEffect(() => {
     if (answerRef.current) answerRef.current.scrollTop = answerRef.current.scrollHeight;
   }, [messages, result, state]);
@@ -794,8 +796,8 @@ export function ContextBarWindow() {
         </div>}
 
         {state === "error" && <div className="context-run-view">
-          <header className="context-run-header"><span className="error-icon"><X size={17} /></span><div className="context-run-copy"><strong>Run failed</strong><small>The error is shown below</small></div><div className="context-run-actions">{result && <button type="button" className="result-button" onClick={() => void copyNativeText(result)}><Copy size={14} /> Copy partial</button>}<button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void close()} aria-label="Close"><X size={14} /></button></div></header>
-          <div className="context-error-detail">{error}</div>
+          <header className="context-run-header"><span className="error-icon"><X size={17} /></span><div className="context-run-copy"><strong>{codexFailure(error).title}</strong><small>{codexFailure(error).modelCompatibility ? "Update, then check your connection" : "The error is shown below"}</small></div><div className="context-run-actions">{result && <button type="button" className="result-button" onClick={() => void copyNativeText(result)}><Copy size={14} /> Copy partial</button>}<button type="button" className="context-redirect" onClick={() => void redirectToStudio()} aria-label="Open in Studio"><ArrowUpRight size={16} /></button><button type="button" className="context-cancel" onClick={() => void close()} aria-label="Close"><X size={14} /></button></div></header>
+          <CodexRunError key={`${historyId.current}-${error}`} error={error} workspacePath={agent?.fixedWorkspacePath} profile={agent?.codexProfile} onRetry={agent && !result && !messages.some((message) => message.role === "user" && message.id !== "selected-text") ? () => void chooseAgent(agent) : undefined} />
         </div>}
       </div>
     </div>

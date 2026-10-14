@@ -38,6 +38,8 @@ The current release uses Codex as its agent runtime and requires **macOS 12 or l
 
 Latch uses your existing Codex login. The default agents work without a workspace or integrations.
 
+Latch prefers the newest working Codex runtime bundled with ChatGPT or Codex in `/Applications` or `~/Applications`. If neither app provides a working runtime, it uses an installed Codex CLI. Updating the desktop app updates its bundled runtime; use **Settings → Codex → Check status** to see the version and path Latch selects. An explicit `CODEX_BIN` environment variable overrides automatic selection.
+
 Updates are available under **Settings → General → Updates**. Public downloads and current in-app updates do not require GitHub CLI or a GitHub account. If an older build asks you to sign in to GitHub, install the latest DMG once to switch to public updates.
 
 To report a vulnerability, use the [private security reporting route](SECURITY.md).
