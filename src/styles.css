@@ -643,6 +643,11 @@ kbd { border: 1px solid #d8dcd4; border-bottom-width: 2px; border-radius: 5px; b
 .codex-error-technical { margin-top: 10px; color: #a6b3aa; }
 .codex-error-technical summary { cursor: pointer; }
 .codex-error-technical pre, .codex-error-technical p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10px; margin-top: 8px; }
+.runtime-detection { margin: 10px 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.runtime-detection summary { cursor: pointer; }
+.runtime-detection ul { padding-left: 18px; }
+.runtime-detection li + li { margin-top: 6px; }
+.context-error-detail .runtime-detection { color: #a6b3aa; }
 
 /* Expanded Studio */
 .studio-scrim { position: fixed; z-index: 250; inset: 0; background: rgba(18,25,21,.55); display: grid; place-items: center; backdrop-filter: blur(5px); }

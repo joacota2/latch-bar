@@ -78,6 +78,8 @@ Automated tests and browser previews cannot verify native Accessibility behavior
 
 Replacement must revalidate the original target. A dispatched edit is not proof of success: if acknowledgement is unavailable, report that state and do not automatically retry. Editors without a usable selection or copy operation require manual copy/paste.
 
+Runtime discovery tests cover both app names, legacy and modern bundle layouts, custom installation paths, and explicit `CODEX_BIN` overrides. To reproduce the modern ChatGPT layout against a real installed app, run `LATCH_TEST_CODEX_APP=/Applications/Codex.app cargo test --manifest-path src-tauri/Cargo.toml --locked live_chatgpt_layout_uses_the_bundled_runtime -- --ignored --nocapture` on macOS. Point the variable at an installed app with `Contents/Resources/codex-cli/bin/codex`. This test creates a temporary `ChatGPT.app` alias and an old CLI fixture, verifies the old discovery failure and the corrected selection, and checks the real app-server entry point without starting a model turn or changing account configuration.
+
 ## Pull requests and releases
 
 Create short-lived branches from `main` and open pull requests back to `main`. Prefer squash merging and use a Conventional Commit title:

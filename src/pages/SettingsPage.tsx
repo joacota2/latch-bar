@@ -7,6 +7,7 @@ import { useLatch } from "../store/LatchStore";
 import { useUpdates } from "../store/UpdateStore";
 import { UpdatesPanel } from "../components/Updates";
 import { PermissionsPanel } from "../components/Permissions";
+import { RuntimeDetection } from "../components/RuntimeDetection";
 import { needsPermissionSetup, usePermissions } from "../store/PermissionStore";
 
 const tabs = ["general", "permissions", "selection", "codex", "privacy"] as const;
@@ -71,6 +72,7 @@ export function SettingsPage() {
     {tab === "permissions" && <PermissionsPanel onOpenCodex={() => setTab("codex")} />}
     {tab === "codex" && <div className="settings-panel">
       <div className="runtime-card"><span className="runtime-large-icon"><FileCode2 size={23} /></span><div><span className="eyebrow">CODEX APP-SERVER</span><h3>{runtime?.available === false ? "Codex not found" : environmentStatus === "error" ? "Codex discovery failed" : environmentStatus === "loading" ? "Discovering Codex environment" : "Connected and ready"}</h3><p>{runtime?.available ? `Version ${runtime.version} · ${codexEnvironment?.models.length ?? 0} models · ${codexEnvironment?.skills.length ?? 0} Skills${runtime.path ? ` · ${runtime.path}` : ""}` : runtime ? "Install the Codex app or the Codex CLI, sign in, then check again." : "Using your installed Codex runtime and authentication."}</p></div><button className="secondary-button" disabled={environmentStatus === "loading"} onClick={() => void checkCodex()}>{environmentStatus === "loading" ? "Checking…" : "Check status"}</button></div>
+      <RuntimeDetection runtime={runtime} />
       {environmentError && <div className="info-banner"><CircleAlert size={18} /><div><strong>Discovery error</strong><p>{environmentError}</p></div></div>}
       {codexEnvironment?.errors.map((error) => <div className="info-banner" key={error}><CircleAlert size={18} /><div><strong>Partial Codex response</strong><p>{error}</p></div></div>)}
       <div className="setting-group"><h3>Installation</h3>

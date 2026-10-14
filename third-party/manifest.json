@@ -8,10 +8,10 @@
     "package.json": "69b4d318ea1597066d23e8562e3f9da5c442a1e1ba76af28f11e058c40bed449",
     "package-lock.json": "c6a5c3d8e6d705f078077cfd25c0b493dbcfa753e747ca8e98ff791822d33451",
     "src-tauri/Cargo.toml": "6aae37ae7c431b9b24b6c2a0c14f13567a3636d06e17b42d5fbf9c0faf21fb03",
-    "src-tauri/Cargo.lock": "a0ca7c6b692d3d36805b941418d59c502a63f47c5e86b8cd892f62a8cedc41f9",
+    "src-tauri/Cargo.lock": "5fc15ae26c369360f50b468f79e97a417bef2a8430cf224d456be57c9ee2d21a",
     "third-party/supplements.json": "d9fde90d0304507fcd4641d56fb9985711636d26ea8ad2690f7f80543c1a7af4",
     "scripts/third-party.py": "358468e745550d1d68b05d40f3b9fa522e0844027368f177f52604a5f6534c90",
-    "src/styles.css": "e5d77936273733b22a98f8339f8510fbab07ec536d071ece53a5739d30853997",
+    "src/styles.css": "589ce2515745a44578de8a11a2fe1ea3da492800f4a06bca52d496de0fa2e605",
     "third-party/provenance.json": "addad14f474af848f41cfcf0c2d9977e5f9387321ed906be7a8d40d7f7ecccbb",
     "vite.config.ts": "ab3e554279a065d75024b82c830d7dc3f4cda42c567fce24223890457386309f",
     "third-party/supplemental/0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9.txt": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
@@ -29,7 +29,7 @@
     "third-party/supplemental/c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae.txt": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
   },
   "output_sha256": {
-    "THIRD_PARTY_NOTICES.txt": "5b973a6ef2ca11cf28bb382920d15d2d07b15e981037dc68c0500ae556afe239",
+    "THIRD_PARTY_NOTICES.txt": "f049098a9ea04911a828bda14e4c3142fd142323c69ae22f45f176871340a912",
     "third-party/sources/cssparser-macros-0.6.1.crate": "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331",
     "third-party/sources/cssparser-0.36.0.crate": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
     "third-party/sources/dtoa-short-0.3.5.crate": "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87",
@@ -3748,13 +3748,13 @@
       ]
     },
     {
-      "id": "cargo:rustls@0.23.45",
+      "id": "cargo:rustls@0.23.46",
       "name": "rustls",
-      "version": "0.23.45",
+      "version": "0.23.46",
       "ecosystem": "cargo",
       "license": "Apache-2.0 OR ISC OR MIT",
-      "source": "https://static.crates.io/crates/rustls/rustls-0.23.45.crate",
-      "integrity": "sha256-DUHXMcfS+WLRzMNkzsJY3jwOk7OML7O6l6x0UTBI1jQ=",
+      "source": "https://static.crates.io/crates/rustls/rustls-0.23.46.crate",
+      "integrity": "sha256-SOE72MDpNlxDz6XJ6PmtSdPIREkmyarIGeDk3FA8j98=",
       "notices": [
         {
           "origin": "LICENSE-APACHE",

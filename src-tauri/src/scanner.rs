@@ -15,6 +15,21 @@ pub struct RuntimeStatus {
     codex_home: String,
     mode: String,
     path: Option<String>,
+    source: &'static str,
+    diagnostics: Vec<RuntimeProbe>,
+}
+
+#[derive(Serialize)]
+struct RuntimeProbe {
+    path: String,
+    detail: String,
+}
+
+struct RuntimeResolution {
+    path: Option<PathBuf>,
+    version: Option<String>,
+    source: &'static str,
+    diagnostics: Vec<RuntimeProbe>,
 }
 
 #[derive(Serialize)]
@@ -226,8 +241,46 @@ fn command_directories_for(path: Vec<PathBuf>, home: Option<&Path>) -> Vec<PathB
     directories
 }
 
-// The Codex and ChatGPT desktop apps ship their own Codex CLI. Users who installed
-// only one of these apps have no `codex` on any PATH.
+// App names and runtime layouts change independently. In particular, modern
+// ChatGPT builds use codex-cli/bin/codex too, not just Resources/codex.
+fn runtimes_in_apps(apps: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    apps.into_iter()
+        .flat_map(|app| {
+            [
+                app.join("Contents/Resources/codex-cli/bin/codex"),
+                app.join("Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+                app.join("Contents/Resources/codex"),
+            ]
+        })
+        .filter(|path| seen.insert(fs::canonicalize(path).unwrap_or_else(|_| path.clone())))
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn registered_codex_apps() -> Vec<PathBuf> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::NSString;
+    let workspace = NSWorkspace::sharedWorkspace();
+    // Launch Services locates renamed apps and installations outside Applications.
+    // Both IDs are used by OpenAI desktop app distributions.
+    ["com.openai.codex", "com.openai.chat"]
+        .into_iter()
+        .flat_map(|id| {
+            workspace
+                .URLsForApplicationsWithBundleIdentifier(&NSString::from_str(id))
+                .iter()
+                .filter_map(|url| url.path().map(|path| PathBuf::from(path.to_string())))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn registered_codex_apps() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 fn bundled_codex_executables(home: Option<&Path>) -> Vec<PathBuf> {
     if !cfg!(target_os = "macos") {
         return Vec::new();
@@ -236,15 +289,12 @@ fn bundled_codex_executables(home: Option<&Path>) -> Vec<PathBuf> {
     if let Some(home) = home {
         roots.push(home.join("Applications"));
     }
-    roots
+    let mut apps = roots
         .iter()
-        .flat_map(|root| {
-            [
-                root.join("Codex.app/Contents/Resources/codex-cli/bin/codex"),
-                root.join("ChatGPT.app/Contents/Resources/codex"),
-            ]
-        })
-        .collect()
+        .flat_map(|root| [root.join("Codex.app"), root.join("ChatGPT.app")])
+        .collect::<Vec<_>>();
+    apps.extend(registered_codex_apps());
+    runtimes_in_apps(apps)
 }
 
 fn codex_candidates(directories: &[PathBuf]) -> Vec<PathBuf> {
@@ -291,49 +341,122 @@ fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command
     command
 }
 
-fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
-    candidates
-        .into_iter()
-        .filter_map(|candidate| {
-            let output = command_for_executable(&candidate, directories)
-                .arg("--version")
-                .output()
-                .ok()
-                .filter(|output| output.status.success())?;
-            let version = parse_codex_version(&output.stdout);
-            // A successful wrapper with no version is not a usable Codex probe.
-            (version.len() >= 3).then_some((version, candidate))
-        })
-        .max_by(|left, right| left.0.cmp(&right.0))
-        .map(|(_, candidate)| candidate)
-}
-
-fn preferred_codex_executable(bundled: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
-    // Desktop app updates maintain these runtimes. Prefer the newest working
-    // bundle so an independent CLI installation cannot shadow the app runtime.
-    // Resolve on each launch/check so app updates take effect without changing
-    // PATH or asking the user to maintain a second Codex installation.
-    newest_codex_executable(bundled, directories)
-        .or_else(|| newest_codex_executable(codex_candidates(directories), directories))
-}
-
-fn resolve_codex_executable(directories: &[PathBuf]) -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("CODEX_BIN")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-    {
-        return Some(configured);
+fn probe_codex(candidate: &Path, directories: &[PathBuf]) -> Result<(Vec<u64>, String), String> {
+    if !candidate.is_file() {
+        return Err("Not found".into());
     }
-    preferred_codex_executable(
+    let output = command_for_executable(candidate, directories)
+        .arg("--version")
+        .output()
+        .map_err(|error| format!("Could not run --version: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("Version check failed ({})", output.status));
+    }
+    let version = parse_codex_version(&output.stdout);
+    if version.len() < 3 {
+        return Err("Version check did not return a Codex version".into());
+    }
+    let label = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .trim_start_matches("codex-cli ")
+        .to_string();
+    Ok((version, label))
+}
+
+fn newest_codex_probe(
+    candidates: Vec<PathBuf>,
+    directories: &[PathBuf],
+    diagnostics: &mut Vec<RuntimeProbe>,
+) -> Option<(PathBuf, String)> {
+    let mut newest: Option<(PathBuf, Vec<u64>, String)> = None;
+    for candidate in candidates {
+        let result = probe_codex(&candidate, directories);
+        diagnostics.push(RuntimeProbe {
+            path: candidate.to_string_lossy().into_owned(),
+            detail: match &result {
+                Ok((_, version)) => format!("Found Codex {version}"),
+                Err(error) => error.clone(),
+            },
+        });
+        if let Ok((version, label)) = result {
+            // On ties keep the first candidate (the app's supported launcher).
+            if newest
+                .as_ref()
+                .is_none_or(|(_, current, _)| version > *current)
+            {
+                newest = Some((candidate, version, label));
+            }
+        }
+    }
+    newest.map(|(path, _, label)| (path, label))
+}
+
+fn select_codex(
+    bundled: Vec<PathBuf>,
+    directories: &[PathBuf],
+    configured: Option<PathBuf>,
+) -> RuntimeResolution {
+    let mut diagnostics = Vec::new();
+    if let Some(configured) = configured {
+        if configured.is_file() {
+            let result = probe_codex(&configured, directories);
+            diagnostics.push(RuntimeProbe {
+                path: configured.to_string_lossy().into_owned(),
+                detail: match &result {
+                    Ok((_, version)) => format!("CODEX_BIN override: Codex {version}"),
+                    Err(error) => format!("CODEX_BIN override: {error}"),
+                },
+            });
+            return RuntimeResolution {
+                path: Some(configured),
+                version: result.ok().map(|(_, version)| version),
+                source: "override",
+                diagnostics,
+            };
+        }
+        diagnostics.push(RuntimeProbe {
+            path: configured.to_string_lossy().into_owned(),
+            detail: "CODEX_BIN does not point to a file; using automatic discovery".into(),
+        });
+    }
+    let (selected, source) = match newest_codex_probe(bundled, directories, &mut diagnostics) {
+        Some(selected) => (Some(selected), "desktop-app"),
+        None => (
+            newest_codex_probe(codex_candidates(directories), directories, &mut diagnostics),
+            "cli",
+        ),
+    };
+    RuntimeResolution {
+        path: selected.as_ref().map(|(path, _)| path.clone()),
+        version: selected.map(|(_, version)| version),
+        source,
+        diagnostics,
+    }
+}
+
+fn resolve_codex_executable(directories: &[PathBuf]) -> RuntimeResolution {
+    select_codex(
         bundled_codex_executables(dirs::home_dir().as_deref()),
         directories,
+        env::var_os("CODEX_BIN").map(PathBuf::from),
     )
+}
+
+#[cfg(test)]
+fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
+    newest_codex_probe(candidates, directories, &mut Vec::new()).map(|(path, _)| path)
+}
+
+#[cfg(test)]
+fn preferred_codex_executable(bundled: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
+    select_codex(bundled, directories, None).path
 }
 
 pub(crate) fn codex_command() -> Command {
     let directories = command_directories();
-    let executable =
-        resolve_codex_executable(&directories).unwrap_or_else(|| PathBuf::from("codex"));
+    let executable = resolve_codex_executable(&directories)
+        .path
+        .unwrap_or_else(|| PathBuf::from("codex"));
     command_for_executable(&executable, &directories)
 }
 
@@ -355,27 +478,18 @@ pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Command {
 
 #[tauri::command]
 pub fn codex_status() -> RuntimeStatus {
-    let mut command = codex_command();
-    let path = Path::new(command.get_program())
-        .is_absolute()
-        .then(|| command.get_program().to_string_lossy().into_owned());
-    let output = command.arg("--version").output();
-    let (available, version) = match output {
-        Ok(result) if result.status.success() => (
-            true,
-            String::from_utf8_lossy(&result.stdout)
-                .trim()
-                .replace("codex-cli ", ""),
-        ),
-        _ => (false, "not found".into()),
-    };
+    let resolved = resolve_codex_executable(&command_directories());
     let home = codex_home();
     RuntimeStatus {
-        available,
-        version,
+        available: resolved.version.is_some(),
+        version: resolved.version.unwrap_or_else(|| "not found".into()),
         codex_home: home.to_string_lossy().into_owned(),
         mode: "native".into(),
-        path: available.then_some(path).flatten(),
+        path: resolved
+            .path
+            .map(|path| path.to_string_lossy().into_owned()),
+        source: resolved.source,
+        diagnostics: resolved.diagnostics,
     }
 }
 
@@ -1200,6 +1314,150 @@ mod tests {
             assert!(candidates.contains(&chatgpt));
         }
         assert!(candidates.contains(&nvm));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn discovers_modern_chatgpt_layout_before_the_old_cli() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = env::temp_dir().join(format!("latch-modern-chatgpt-{}", uuid::Uuid::new_v4()));
+        let app_runtime =
+            root.join("Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex");
+        let cli_dir = root.join(".local/bin");
+        for (path, version) in [
+            (&app_runtime, "0.162.0-alpha.17.2"),
+            (&cli_dir.join("codex"), "0.144.6"),
+        ] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, format!("#!/bin/sh\necho 'codex-cli {version}'\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let candidates = bundled_codex_executables(Some(&root))
+            .into_iter()
+            .filter(|path| path.starts_with(&root))
+            .collect();
+        let selected = preferred_codex_executable(candidates, &[cli_dir]);
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(selected, Some(app_runtime));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn supports_both_app_names_all_layouts_and_registered_locations() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = env::temp_dir().join(format!("latch-app-layouts-{}", uuid::Uuid::new_v4()));
+        for name in [
+            "ChatGPT.app",
+            "Codex.app",
+            "Custom location/My assistant.app",
+        ] {
+            let app = root.join(name);
+            for relative in [
+                "Contents/Resources/codex-cli/bin/codex",
+                "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+                "Contents/Resources/codex",
+            ] {
+                let path = app.join(relative);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(&path, "#!/bin/sh\necho 'codex-cli 0.162.0-alpha.17.2'\n").unwrap();
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+                let resolution = select_codex(runtimes_in_apps(vec![app.clone()]), &[], None);
+                assert_eq!(resolution.path, Some(path.clone()));
+                assert_eq!(resolution.source, "desktop-app");
+                fs::remove_file(path).unwrap();
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reports_failed_probes_and_explicit_overrides() {
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            env::temp_dir().join(format!("latch-probe-diagnostics-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let cli = root.join("codex");
+        let broken = root.join("broken");
+        let malformed = root.join("malformed");
+        let missing = root.join("missing");
+        for (path, script) in [
+            (&cli, "echo 'codex-cli 0.144.6'"),
+            (&broken, "exit 7"),
+            (&malformed, "echo unknown"),
+        ] {
+            fs::write(path, format!("#!/bin/sh\n{script}\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let fallback = select_codex(
+            vec![missing.clone(), broken.clone(), malformed.clone()],
+            &[root.clone()],
+            None,
+        );
+        assert_eq!(fallback.source, "cli");
+        assert_eq!(fallback.version.as_deref(), Some("0.144.6"));
+        assert!(fallback.diagnostics[0].detail.contains("Not found"));
+        assert!(fallback.diagnostics[1].detail.contains("exit status: 7"));
+        assert!(fallback.diagnostics[2]
+            .detail
+            .contains("did not return a Codex version"));
+        let overridden = select_codex(vec![], &[root.clone()], Some(cli.clone()));
+        assert_eq!(overridden.source, "override");
+        assert!(overridden.diagnostics[0].detail.contains("CODEX_BIN"));
+        let failed_override = select_codex(vec![cli.clone()], &[], Some(broken));
+        assert!(failed_override.version.is_none());
+        assert_eq!(failed_override.source, "override");
+        let stale_override = select_codex(vec![cli.clone()], &[], Some(missing));
+        assert_eq!(stale_override.source, "desktop-app");
+        assert!(stale_override.diagnostics[0]
+            .detail
+            .contains("automatic discovery"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires an installed modern desktop app; set LATCH_TEST_CODEX_APP"]
+    fn live_chatgpt_layout_uses_the_bundled_runtime() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let installed =
+            PathBuf::from(env::var_os("LATCH_TEST_CODEX_APP").expect("desktop app path"));
+        assert!(installed
+            .join("Contents/Resources/codex-cli/bin/codex")
+            .is_file());
+        let root = env::temp_dir().join(format!("latch-live-chatgpt-{}", uuid::Uuid::new_v4()));
+        let app = root.join("ChatGPT.app");
+        fs::create_dir_all(&root).unwrap();
+        symlink(&installed, &app).unwrap();
+        let cli = root.join("codex");
+        fs::write(&cli, "#!/bin/sh\necho 'codex-cli 0.144.6'\n").unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut directories = vec![root.clone()];
+        directories.extend(command_directories());
+        // The old ChatGPT-only layout misses the real runtime and selects the CLI.
+        let old = select_codex(
+            vec![app.join("Contents/Resources/codex")],
+            &directories[..1],
+            None,
+        );
+        assert_eq!(old.path, Some(cli));
+        let fixed = select_codex(runtimes_in_apps(vec![app]), &directories, None);
+        assert_eq!(fixed.source, "desktop-app");
+        assert_ne!(fixed.version.as_deref(), Some("0.144.6"));
+        let path = fixed.path.unwrap();
+        let output = command_for_executable(&path, &directories)
+            .args(["app-server", "--help"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        println!(
+            "Old discovery: 0.144.6 CLI. Fixed discovery: {} via {}. App-server entry point works.",
+            fixed.version.unwrap(),
+            path.display()
+        );
+        // Exercise the actual Launch Services discovery as well, without opening an app.
+        assert!(!registered_codex_apps().is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 
