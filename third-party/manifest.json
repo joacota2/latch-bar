@@ -7,8 +7,8 @@
   "input_sha256": {
     "package.json": "69b4d318ea1597066d23e8562e3f9da5c442a1e1ba76af28f11e058c40bed449",
     "package-lock.json": "c6a5c3d8e6d705f078077cfd25c0b493dbcfa753e747ca8e98ff791822d33451",
-    "src-tauri/Cargo.toml": "6aae37ae7c431b9b24b6c2a0c14f13567a3636d06e17b42d5fbf9c0faf21fb03",
-    "src-tauri/Cargo.lock": "5fc15ae26c369360f50b468f79e97a417bef2a8430cf224d456be57c9ee2d21a",
+    "src-tauri/Cargo.toml": "0ad3435fd98aacff0081ba8bbd40553cd51addd416f320f502612d6bf182c409",
+    "src-tauri/Cargo.lock": "4d2f0c722cfadea7334cd06b8a946dd4adea45b6ebf8a70bd6c5eaeedd213de5",
     "third-party/supplements.json": "d9fde90d0304507fcd4641d56fb9985711636d26ea8ad2690f7f80543c1a7af4",
     "scripts/third-party.py": "358468e745550d1d68b05d40f3b9fa522e0844027368f177f52604a5f6534c90",
     "src/styles.css": "589ce2515745a44578de8a11a2fe1ea3da492800f4a06bca52d496de0fa2e605",

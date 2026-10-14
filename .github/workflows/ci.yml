@@ -52,3 +52,9 @@ jobs:
 
       - name: Test native selection and runtime contracts
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Test updater across macOS volumes
+        timeout-minutes: 5
+        run: |
+          python3 scripts/test-updater-macos.py
+          python3 scripts/test-updater-macos.py --filesystem HFS+
