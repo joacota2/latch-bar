@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.9](https://github.com/joacota2/latch-bar/compare/v0.3.8...v0.3.9) (2026-10-14)
+
+
+### Bug Fixes
+
+* discover modern ChatGPT bundled runtimes ([#37](https://github.com/joacota2/latch-bar/issues/37)) ([c41a48d](https://github.com/joacota2/latch-bar/commit/c41a48d2e56b508a917d90a6bb93e66a3f45dc65))
+* install macOS updates safely across volumes ([#36](https://github.com/joacota2/latch-bar/issues/36)) ([a36862a](https://github.com/joacota2/latch-bar/commit/a36862aee526c97bddd7abc0fbffdb3bf0c6a552))
+
 ## [0.3.8](https://github.com/joacota2/latch-bar/compare/v0.3.7...v0.3.8) (2026-10-14)
 
 
