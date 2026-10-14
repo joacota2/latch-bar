@@ -636,6 +636,13 @@ kbd { border: 1px solid #d8dcd4; border-bottom-width: 2px; border-radius: 5px; b
 .context-follow-up button:disabled { opacity: .4; cursor: default; transform: none; }
 .context-approval-detail, .context-error-detail { flex: 1; min-height: 0; overflow: auto; padding: 13px; border: 1px solid rgba(255,255,255,.07); border-radius: 9px; background: #18211b; color: #d9e0da; font-size: 10px; line-height: 1.5; }
 .context-error-detail { color: #f0b1a8; border-color: rgba(230,128,114,.14); }
+.context-error-detail p { margin: 0 0 9px; }
+.codex-recovery { color: #e8eee9; }
+.codex-recovery-version { color: #a6b3aa; }
+.codex-recovery-actions { display: flex; gap: 8px; margin: 12px 0; }
+.codex-error-technical { margin-top: 10px; color: #a6b3aa; }
+.codex-error-technical summary { cursor: pointer; }
+.codex-error-technical pre, .codex-error-technical p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10px; margin-top: 8px; }
 
 /* Expanded Studio */
 .studio-scrim { position: fixed; z-index: 250; inset: 0; background: rgba(18,25,21,.55); display: grid; place-items: center; backdrop-filter: blur(5px); }

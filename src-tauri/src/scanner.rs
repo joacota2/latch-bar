@@ -247,7 +247,7 @@ fn bundled_codex_executables(home: Option<&Path>) -> Vec<PathBuf> {
         .collect()
 }
 
-fn codex_candidates(directories: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf> {
+fn codex_candidates(directories: &[PathBuf]) -> Vec<PathBuf> {
     let mut candidates = directories
         .iter()
         .flat_map(|directory| {
@@ -255,7 +255,6 @@ fn codex_candidates(directories: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf
                 .iter()
                 .map(move |name| directory.join(name))
         })
-        .chain(bundled_codex_executables(home))
         .filter(|path| path.is_file())
         .collect::<Vec<_>>();
     candidates.sort();
@@ -301,10 +300,21 @@ fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) ->
                 .output()
                 .ok()
                 .filter(|output| output.status.success())?;
-            Some((parse_codex_version(&output.stdout), candidate))
+            let version = parse_codex_version(&output.stdout);
+            // A successful wrapper with no version is not a usable Codex probe.
+            (version.len() >= 3).then_some((version, candidate))
         })
         .max_by(|left, right| left.0.cmp(&right.0))
         .map(|(_, candidate)| candidate)
+}
+
+fn preferred_codex_executable(bundled: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
+    // Desktop app updates maintain these runtimes. Prefer the newest working
+    // bundle so an independent CLI installation cannot shadow the app runtime.
+    // Resolve on each launch/check so app updates take effect without changing
+    // PATH or asking the user to maintain a second Codex installation.
+    newest_codex_executable(bundled, directories)
+        .or_else(|| newest_codex_executable(codex_candidates(directories), directories))
 }
 
 fn resolve_codex_executable(directories: &[PathBuf]) -> Option<PathBuf> {
@@ -314,8 +324,8 @@ fn resolve_codex_executable(directories: &[PathBuf]) -> Option<PathBuf> {
     {
         return Some(configured);
     }
-    newest_codex_executable(
-        codex_candidates(directories, dirs::home_dir().as_deref()),
+    preferred_codex_executable(
+        bundled_codex_executables(dirs::home_dir().as_deref()),
         directories,
     )
 }
@@ -1182,13 +1192,84 @@ mod tests {
         }
 
         let directories = command_directories_for(Vec::new(), Some(&root));
-        let candidates = codex_candidates(&directories, Some(&root));
+        let mut candidates = codex_candidates(&directories);
+        candidates.extend(bundled_codex_executables(Some(&root)));
 
         if cfg!(target_os = "macos") {
             assert!(candidates.contains(&bundled));
             assert!(candidates.contains(&chatgpt));
         }
         assert!(candidates.contains(&nvm));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prefers_newest_app_runtime_and_picks_up_app_updates() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = env::temp_dir().join(format!("latch-app-runtime-{}", uuid::Uuid::new_v4()));
+        let cli_dir = root.join(".local/bin");
+        let cli = cli_dir.join("codex");
+        let chatgpt = root.join("Applications/ChatGPT.app/Contents/Resources/codex");
+        let codex = root.join("Applications/Codex.app/Contents/Resources/codex-cli/bin/codex");
+        let write_version = |path: &Path, version: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, format!("#!/bin/sh\necho 'codex-cli {version}'\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        write_version(&cli, "0.144.6");
+        write_version(&chatgpt, "0.155.0-alpha.9.2");
+        write_version(&codex, "0.153.0");
+        let directories = vec![cli_dir];
+        let bundles = vec![chatgpt.clone(), codex.clone()];
+        assert_eq!(
+            preferred_codex_executable(bundles.clone(), &directories),
+            Some(chatgpt.clone())
+        );
+
+        // App updates are discovered again, rather than pinning the old path.
+        write_version(&codex, "0.162.0-alpha.2");
+        assert_eq!(
+            preferred_codex_executable(bundles.clone(), &directories),
+            Some(codex.clone())
+        );
+        // Even a newer independent CLI does not override the app preference.
+        write_version(&cli, "0.200.0");
+        assert_eq!(
+            preferred_codex_executable(bundles, &directories),
+            Some(codex)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn falls_back_to_cli_when_bundled_runtimes_are_unusable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = env::temp_dir().join(format!("latch-runtime-fallback-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let write_executable = |name: &str, body: &str| {
+            let path = root.join(name);
+            fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let cli = write_executable("codex", "echo 'codex-cli 0.160.0'");
+        let broken = write_executable("broken", "exit 1");
+        let invalid = write_executable("invalid", "echo 'not a version'");
+        let bundles = vec![root.join("missing"), broken, invalid];
+        assert_eq!(
+            preferred_codex_executable(bundles.clone(), &[root.clone()]),
+            Some(cli.clone())
+        );
+        assert_eq!(
+            preferred_codex_executable(Vec::new(), &[root.clone()]),
+            Some(cli.clone())
+        );
+        fs::remove_file(cli).unwrap();
+        assert_eq!(preferred_codex_executable(bundles, &[root.clone()]), None);
         fs::remove_dir_all(root).unwrap();
     }
 

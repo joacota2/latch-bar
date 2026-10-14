@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   focusSelectionApplication: vi.fn(),
   openStudio: vi.fn(),
   replaceNativeSelection: vi.fn(),
+  getRuntimeStatus: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -54,6 +55,7 @@ vi.mock("../services/runtime", () => ({
   setOverlayPinned: mocks.setOverlayPinned,
   startNativeRun: mocks.startNativeRun,
   stopNativeRun: mocks.stopNativeRun,
+  getRuntimeStatus: mocks.getRuntimeStatus,
 }));
 
 const selection = (
@@ -105,6 +107,7 @@ describe("Context Bar lifecycle", () => {
     mocks.setContextBarFocusable.mockResolvedValue(undefined);
     mocks.focusSelectionApplication.mockResolvedValue(undefined);
     mocks.openStudio.mockResolvedValue(undefined);
+    mocks.getRuntimeStatus.mockResolvedValue({ available: true, version: "0.146.1", path: "/Applications/Codex.app/Contents/Resources/codex-cli/bin/codex" });
     mocks.replaceNativeSelection
       .mockReset()
       .mockResolvedValue({ method: "accessibility", verified: true });
@@ -203,6 +206,24 @@ describe("Context Bar lifecycle", () => {
     expect(
       JSON.parse(localStorage.getItem(key) ?? '{"runs":[]}').runs,
     ).toHaveLength(1);
+  });
+  it("shows update recovery for the reported model failure while preserving history", async () => {
+    await launch();
+    const error = JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account." } });
+    message({ method: "turn/completed", params: { turn: { status: "failed", error: { message: error } } } });
+    expect(await screen.findByText("Codex may need an update")).toBeInTheDocument();
+    expect(await screen.findByText(/Open the Codex app/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
+    expect(mocks.resizeContextBar).toHaveBeenLastCalledWith(330, 620, 80);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).runs[0]).toMatchObject({ status: "failed", activity: error }));
+    expect(mocks.startNativeRun).toHaveBeenCalledTimes(1);
+    mocks.scanCodexEnvironment.mockResolvedValue({ ...env, account: { requiresOpenaiAuth: true, signedIn: true } });
+    await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+    const retry = await screen.findByRole("button", { name: "Run again" });
+    expect(mocks.startNativeRun).toHaveBeenCalledTimes(1);
+    await userEvent.click(retry);
+    await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(2));
+    expect(mocks.startNativeRun.mock.calls[1][1].selection).toBe("QA selection 😀");
   });
   it("GAP-12 approval-delivery rejection displays actionable error [acceptance]", async () => {
     await launch();
