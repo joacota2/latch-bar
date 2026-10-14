@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import { codexFailure, codexUpdateHelp } from "../services/codexErrors";
 import { getRuntimeStatus, scanCodexEnvironment, type RuntimeStatus } from "../services/runtime";
+import { RuntimeDetection } from "./RuntimeDetection";
 
 export function CodexRunError({ error, workspacePath, profile, onRetry }: { error: string; workspacePath?: string; profile?: string; onRetry?: () => void }) {
   const failure = codexFailure(error);
@@ -67,6 +68,6 @@ export function CodexRunError({ error, workspacePath, profile, onRetry }: { erro
       </div>
       {feedback && <p role="status">{feedback}</p>}
     </div> : <p>{failure.message}</p>}
-    {(failure.modelCompatibility || failure.message !== error) && <details className="codex-error-technical"><summary>Technical details</summary>{runtime?.path && <p>{runtime.path}</p>}<pre>{error}</pre></details>}
+    {(failure.modelCompatibility || failure.message !== error) && <details className="codex-error-technical"><summary>Technical details</summary>{runtime?.path && <p>{runtime.path}</p>}<RuntimeDetection runtime={runtime} /><pre>{error}</pre></details>}
   </div>;
 }

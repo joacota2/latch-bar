@@ -46,6 +46,22 @@ describe("Codex model recovery", () => {
     expect(mocks.open).toHaveBeenCalledWith("https://developers.openai.com/codex/cli");
   });
 
+  it("explains an explicit runtime override instead of suggesting an app update", async () => {
+    mocks.status.mockResolvedValue({ ...oldRuntime, path: "/Users/test/.local/bin/codex", source: "override", diagnostics: [{ path: "/Users/test/.local/bin/codex", detail: "CODEX_BIN override: Codex 0.144.6" }] });
+    render(<CodexRunError error={raw} />);
+    expect(await screen.findByText(/CODEX_BIN is forcing/)).toBeInTheDocument();
+    expect(screen.getByText(/CODEX_BIN overrides automatic runtime selection/)).toBeInTheDocument();
+  });
+
+  it("recognizes a renamed desktop app and exposes failed detection attempts", async () => {
+    mocks.status.mockResolvedValue({ ...oldRuntime, path: "/Volumes/Apps/My assistant.app/Contents/Resources/codex-cli/bin/codex", source: "desktop-app", diagnostics: [{ path: "/Applications/ChatGPT.app/Contents/Resources/codex", detail: "Not found" }] });
+    render(<CodexRunError error={raw} />);
+    expect(await screen.findByText(/Open your Codex or ChatGPT app/)).toBeInTheDocument();
+    expect(screen.getByText("Runtime detection")).toBeInTheDocument();
+    expect(screen.getByText(/Not found/)).toBeInTheDocument();
+    expect(screen.queryByText(/separately installed Codex CLI/)).not.toBeInTheDocument();
+  });
+
   it("checks the failed agent's profile and workspace without claiming model access is fixed", async () => {
     render(<CodexRunError error={raw} workspacePath="/projects/example" profile="work" />);
     await screen.findByText("Using Codex 0.146.1");
