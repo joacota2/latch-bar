@@ -7,6 +7,8 @@ mod public_release;
 mod runtime;
 mod scanner;
 mod updates;
+#[cfg(target_os = "macos")]
+mod update_installer;
 
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};

@@ -42,6 +42,8 @@ Latch prefers the newest working Codex runtime bundled with ChatGPT or Codex in 
 
 Updates are available under **Settings → General → Updates**. Public downloads and current in-app updates do not require GitHub CLI or a GitHub account. If an older build asks you to sign in to GitHub, install the latest DMG once to switch to public updates.
 
+If an older build cannot install an update and reports **Cross-device link (os error 18)**, quit Latch and install the latest DMG into Applications once. Replacing the app preserves your agents and settings. Current builds stage updates on the app's own volume and offer a manual installer when automatic installation cannot finish.
+
 To report a vulnerability, use the [private security reporting route](SECURITY.md).
 
 ## Text capture and privacy
