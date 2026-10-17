@@ -237,10 +237,21 @@ pub async fn install_update(window: WebviewWindow, app: AppHandle) -> Result<(),
             inner.state.downloaded_bytes = bytes.len() as u64;
             inner.state.phase = Phase::Installing;
         });
-        tauri::async_runtime::spawn_blocking(move || update.install(bytes))
-            .await
-            .map_err(|error| error.to_string())?
-            .map_err(|error| format!("Could not install the update: {error}"))?;
+        tauri::async_runtime::spawn_blocking(move || {
+            // download() has already verified the archive with the pinned updater key.
+            // The plugin's macOS installer stages in TMPDIR and renames across volumes.
+            #[cfg(target_os = "macos")]
+            {
+                crate::update_installer::install(&bytes)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                update.install(bytes).map_err(|error| error.to_string())
+            }
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("Could not install the update: {error}"))?;
         Ok::<(), String>(())
     }
     .await;

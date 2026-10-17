@@ -10,6 +10,8 @@ mod runtime;
 mod runtime_events;
 mod scanner;
 mod transient;
+#[cfg(target_os = "macos")]
+mod update_installer;
 mod updates;
 
 use tauri::Manager;

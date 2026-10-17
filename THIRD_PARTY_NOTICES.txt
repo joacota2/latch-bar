@@ -1412,10 +1412,10 @@ Source: https://static.crates.io/crates/rustls-webpki/rustls-webpki-0.103.15.cra
 Archive integrity: sha256-88PPHYsefUkn4tFUw/ywKXmvuZOWKcYs2QSNTwe2CsI=
 Notice 5b698ca13897be3afdb7174256fa1574f8c6892b8bea1a66dd6469d3fe27885a (LICENSE)
 
-cargo:rustls@0.23.45
+cargo:rustls@0.23.46
 License expression: Apache-2.0 OR ISC OR MIT
-Source: https://static.crates.io/crates/rustls/rustls-0.23.45.crate
-Archive integrity: sha256-DUHXMcfS+WLRzMNkzsJY3jwOk7OML7O6l6x0UTBI1jQ=
+Source: https://static.crates.io/crates/rustls/rustls-0.23.46.crate
+Archive integrity: sha256-SOE72MDpNlxDz6XJ6PmtSdPIREkmyarIGeDk3FA8j98=
 Notice a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2 (LICENSE-APACHE)
 Notice 7cfafc877eccc46c0e346ccbaa5c51bb6b894d2b818e617d970211e232785ad4 (LICENSE-ISC)
 Notice 709e3175b4212f7b13aa93971c9f62ff8c69ec45ad8c6532a7e0c41d7a7d6f8c (LICENSE-MIT)

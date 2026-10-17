@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
   check: vi.fn(),
   install: vi.fn(),
   editor: vi.fn(),
+  openUrl: vi.fn(),
   callback: undefined as ((state: UpdateState) => void) | undefined,
 }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.openUrl }));
 vi.mock("../services/updates", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../services/updates")>()),
   getUpdateState: mocks.get,
@@ -200,6 +202,39 @@ describe("Updates", () => {
     ).toBeDisabled();
     expect(mocks.editor).toHaveBeenLastCalledWith(true);
     expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it("offers a manual installer after a native installation failure", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockResolvedValue({
+      ...available,
+      phase: "error",
+      error:
+        "Could not install the update: The installed app was not replaced.",
+    });
+    mocks.openUrl.mockRejectedValueOnce(new Error("unavailable"));
+    mount();
+    await user.click(
+      await screen.findByRole("button", { name: "Download installer" }),
+    );
+    expect(mocks.openUrl).toHaveBeenCalledWith(
+      "https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg",
+    );
+    expect(
+      await screen.findByText(/Could not open the download/),
+    ).toBeInTheDocument();
+    expect(mocks.install).not.toHaveBeenCalled();
+    act(() =>
+      mocks.callback?.({
+        ...available,
+        revision: 2,
+        phase: "checking",
+        error: null,
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Download installer" }),
+    ).not.toBeInTheDocument();
   });
 
   it("ignores stale snapshots and events", async () => {

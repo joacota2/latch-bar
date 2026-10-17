@@ -7,11 +7,11 @@
   "input_sha256": {
     "package.json": "bc6d8fd3c1e926a5fbb644e12c29d7aa7912403819beb091ee6b6b591d92d3dd",
     "package-lock.json": "2d78e166174a0bdbaa78514674d45a32bc5ee72205f061c7bcc13ac7bf918a08",
-    "src-tauri/Cargo.toml": "6aae37ae7c431b9b24b6c2a0c14f13567a3636d06e17b42d5fbf9c0faf21fb03",
-    "src-tauri/Cargo.lock": "a0ca7c6b692d3d36805b941418d59c502a63f47c5e86b8cd892f62a8cedc41f9",
+    "src-tauri/Cargo.toml": "0ad3435fd98aacff0081ba8bbd40553cd51addd416f320f502612d6bf182c409",
+    "src-tauri/Cargo.lock": "4d2f0c722cfadea7334cd06b8a946dd4adea45b6ebf8a70bd6c5eaeedd213de5",
     "third-party/supplements.json": "1190e9afbe20076448526934a945e966787b0955f58329537c5afdfa8d602f5a",
     "scripts/third-party.py": "9b23b3f5bd0d9fa6f85b4d1527e00abed5907dc5b85004142bb1bec35f708d75",
-    "src/styles.css": "b9813ff2c8871f86178c69b6ed5fd1c53f8c9b68c2a2ac47a500c2a1c40481b0",
+    "src/styles.css": "c394a383b4c572fea5f0dce684bc71384e77eea33299cbed6bf9beb3bb9a7095",
     "third-party/provenance.json": "1fb58100410d3ac5785ea3273a66fa6a4a932924dd461dae43c22533f6902f1f",
     "vite.config.ts": "105a9c922ee86e602dc16645d33ae5476045c6fc9705b9b03223b0aef583434c",
     "third-party/supplemental/0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9.txt": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9",
@@ -31,7 +31,7 @@
     "third-party/supplemental/c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae.txt": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
   },
   "output_sha256": {
-    "THIRD_PARTY_NOTICES.txt": "010c86f19d33017a056ac4a7c5069f9abfe7f9ff7469d5e87c7785aac829a4e9",
+    "THIRD_PARTY_NOTICES.txt": "6d5d47a8e7377a6fc96da489681ea2d3686977ac4ef4107895994d35bab6ad51",
     "third-party/sources/cssparser-macros-0.6.1.crate": "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331",
     "third-party/sources/cssparser-0.36.0.crate": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
     "third-party/sources/dtoa-short-0.3.5.crate": "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87",
@@ -3750,13 +3750,13 @@
       ]
     },
     {
-      "id": "cargo:rustls@0.23.45",
+      "id": "cargo:rustls@0.23.46",
       "name": "rustls",
-      "version": "0.23.45",
+      "version": "0.23.46",
       "ecosystem": "cargo",
       "license": "Apache-2.0 OR ISC OR MIT",
-      "source": "https://static.crates.io/crates/rustls/rustls-0.23.45.crate",
-      "integrity": "sha256-DUHXMcfS+WLRzMNkzsJY3jwOk7OML7O6l6x0UTBI1jQ=",
+      "source": "https://static.crates.io/crates/rustls/rustls-0.23.46.crate",
+      "integrity": "sha256-SOE72MDpNlxDz6XJ6PmtSdPIREkmyarIGeDk3FA8j98=",
       "notices": [
         {
           "origin": "LICENSE-APACHE",

@@ -15,7 +15,11 @@ pub struct RuntimeStatus {
     codex_home: String,
     mode: String,
     path: Option<String>,
+    source: &'static str,
+    diagnostics: Vec<RuntimeProbe>,
 }
+
+use crate::discovery::{Resolution as RuntimeResolution, RuntimeProbe};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -228,8 +232,46 @@ fn command_directories_for(path: Vec<PathBuf>, home: Option<&Path>) -> Vec<PathB
     directories
 }
 
-// The Codex and ChatGPT desktop apps ship their own Codex CLI. Users who installed
-// only one of these apps have no `codex` on any PATH.
+// App names and runtime layouts change independently. In particular, modern
+// ChatGPT builds use codex-cli/bin/codex too, not just Resources/codex.
+fn runtimes_in_apps(apps: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    apps.into_iter()
+        .flat_map(|app| {
+            [
+                app.join("Contents/Resources/codex-cli/bin/codex"),
+                app.join("Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+                app.join("Contents/Resources/codex"),
+            ]
+        })
+        .filter(|path| seen.insert(fs::canonicalize(path).unwrap_or_else(|_| path.clone())))
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn registered_codex_apps() -> Vec<PathBuf> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::NSString;
+    let workspace = NSWorkspace::sharedWorkspace();
+    // Launch Services locates renamed apps and installations outside Applications.
+    // Both IDs are used by OpenAI desktop app distributions.
+    ["com.openai.codex", "com.openai.chat"]
+        .into_iter()
+        .flat_map(|id| {
+            workspace
+                .URLsForApplicationsWithBundleIdentifier(&NSString::from_str(id))
+                .iter()
+                .filter_map(|url| url.path().map(|path| PathBuf::from(path.to_string())))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn registered_codex_apps() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 fn bundled_codex_executables(home: Option<&Path>) -> Vec<PathBuf> {
     if !cfg!(target_os = "macos") {
         return Vec::new();
@@ -238,18 +280,15 @@ fn bundled_codex_executables(home: Option<&Path>) -> Vec<PathBuf> {
     if let Some(home) = home {
         roots.push(home.join("Applications"));
     }
-    roots
+    let mut apps = roots
         .iter()
-        .flat_map(|root| {
-            [
-                root.join("Codex.app/Contents/Resources/codex-cli/bin/codex"),
-                root.join("ChatGPT.app/Contents/Resources/codex"),
-            ]
-        })
-        .collect()
+        .flat_map(|root| [root.join("Codex.app"), root.join("ChatGPT.app")])
+        .collect::<Vec<_>>();
+    apps.extend(registered_codex_apps());
+    runtimes_in_apps(apps)
 }
 
-fn codex_candidates(directories: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf> {
+fn codex_candidates(directories: &[PathBuf]) -> Vec<PathBuf> {
     let mut candidates = directories
         .iter()
         .flat_map(|directory| {
@@ -257,7 +296,6 @@ fn codex_candidates(directories: &[PathBuf], home: Option<&Path>) -> Vec<PathBuf
                 .iter()
                 .map(move |name| directory.join(name))
         })
-        .chain(bundled_codex_executables(home))
         .filter(|path| path.is_file())
         .collect::<Vec<_>>();
     candidates.sort();
@@ -296,21 +334,39 @@ pub(crate) fn command_for_executable(executable: &Path, directories: &[PathBuf])
 
 #[cfg(test)]
 fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
-    crate::discovery::newest(candidates, directories).map(|item| item.path)
+    crate::discovery::newest(candidates, directories).and_then(|item| item.path)
 }
-fn resolve_codex(force: bool) -> Result<(crate::discovery::Executable, Vec<PathBuf>), String> {
+#[cfg(test)]
+fn select_codex(
+    bundled: Vec<PathBuf>,
+    directories: &[PathBuf],
+    configured: Option<PathBuf>,
+) -> RuntimeResolution {
+    crate::discovery::select(
+        bundled,
+        codex_candidates(directories),
+        directories,
+        configured,
+    )
+}
+#[cfg(test)]
+fn preferred_codex_executable(bundled: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
+    select_codex(bundled, directories, None).path
+}
+fn resolve_codex(force: bool) -> Result<(RuntimeResolution, Vec<PathBuf>), String> {
     let directories = command_directories();
-    let executable = crate::discovery::resolve(
-        codex_candidates(&directories, dirs::home_dir().as_deref()),
+    let resolved = crate::discovery::resolve(
+        bundled_codex_executables(dirs::home_dir().as_deref()),
+        codex_candidates(&directories),
         &directories,
         env::var_os("CODEX_BIN").map(PathBuf::from),
         force,
     )?;
-    Ok((executable, directories))
+    Ok((resolved, directories))
 }
 pub(crate) fn codex_command() -> Result<Command, String> {
-    let (executable, directories) = resolve_codex(false)?;
-    Ok(command_for_executable(&executable.path, &directories))
+    let (resolved, directories) = resolve_codex(false)?;
+    Ok(command_for_executable(resolved.executable()?, &directories))
 }
 
 pub(crate) fn codex_spawn_error(error: std::io::Error) -> String {
@@ -333,16 +389,17 @@ pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Result<Command,
 #[tauri::command]
 pub async fn codex_status(force_refresh: Option<bool>) -> Result<RuntimeStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let (executable, _) = resolve_codex(force_refresh.unwrap_or(false))?;
+        let (resolved, _) = resolve_codex(force_refresh.unwrap_or(false))?;
         Ok(RuntimeStatus {
-            available: true,
-            version: executable
-                .version
-                .trim_start_matches("codex-cli ")
-                .to_string(),
+            available: resolved.version.is_some(),
+            version: resolved.version.unwrap_or_else(|| "not found".into()),
             codex_home: codex_home().to_string_lossy().into_owned(),
             mode: "native".into(),
-            path: Some(executable.path.to_string_lossy().into_owned()),
+            path: resolved
+                .path
+                .map(|path| path.to_string_lossy().into_owned()),
+            source: resolved.source,
+            diagnostics: resolved.diagnostics,
         })
     })
     .await
@@ -1196,13 +1253,232 @@ mod tests {
         }
 
         let directories = command_directories_for(Vec::new(), Some(&root));
-        let candidates = codex_candidates(&directories, Some(&root));
+        let mut candidates = codex_candidates(&directories);
+        candidates.extend(bundled_codex_executables(Some(&root)));
 
         if cfg!(target_os = "macos") {
             assert!(candidates.contains(&bundled));
             assert!(candidates.contains(&chatgpt));
         }
         assert!(candidates.contains(&nvm));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn discovers_modern_chatgpt_layout_before_the_old_cli() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = env::temp_dir().join(format!("latch-modern-chatgpt-{}", uuid::Uuid::new_v4()));
+        let app_runtime =
+            root.join("Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex");
+        let cli_dir = root.join(".local/bin");
+        for (path, version) in [
+            (&app_runtime, "0.162.0-alpha.17.2"),
+            (&cli_dir.join("codex"), "0.144.6"),
+        ] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, format!("#!/bin/sh\necho 'codex-cli {version}'\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let candidates = bundled_codex_executables(Some(&root))
+            .into_iter()
+            .filter(|path| path.starts_with(&root))
+            .collect();
+        let selected = preferred_codex_executable(candidates, &[cli_dir]);
+        fs::remove_dir_all(root).unwrap();
+        assert_eq!(selected, Some(app_runtime));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn supports_both_app_names_all_layouts_and_registered_locations() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = env::temp_dir().join(format!("latch-app-layouts-{}", uuid::Uuid::new_v4()));
+        for name in [
+            "ChatGPT.app",
+            "Codex.app",
+            "Custom location/My assistant.app",
+        ] {
+            let app = root.join(name);
+            for relative in [
+                "Contents/Resources/codex-cli/bin/codex",
+                "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+                "Contents/Resources/codex",
+            ] {
+                let path = app.join(relative);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(&path, "#!/bin/sh\necho 'codex-cli 0.162.0-alpha.17.2'\n").unwrap();
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+                let resolution = select_codex(runtimes_in_apps(vec![app.clone()]), &[], None);
+                assert_eq!(resolution.path, Some(path.clone()), "{resolution:?}");
+                assert_eq!(resolution.source, "desktop-app");
+                fs::remove_file(path).unwrap();
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reports_failed_probes_and_explicit_overrides() {
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            env::temp_dir().join(format!("latch-probe-diagnostics-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let cli = root.join("codex");
+        let broken = root.join("broken");
+        let malformed = root.join("malformed");
+        let missing = root.join("missing");
+        for (path, script) in [
+            (&cli, "echo 'codex-cli 0.144.6'"),
+            (&broken, "exit 7"),
+            (&malformed, "echo unknown"),
+        ] {
+            fs::write(path, format!("#!/bin/sh\n{script}\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let fallback = select_codex(
+            vec![missing.clone(), broken.clone(), malformed.clone()],
+            std::slice::from_ref(&root),
+            None,
+        );
+        assert_eq!(fallback.source, "cli");
+        assert_eq!(fallback.version.as_deref(), Some("0.144.6"), "{fallback:?}");
+        assert!(fallback.diagnostics[0].detail.contains("Not found"));
+        assert!(fallback.diagnostics[1].detail.contains("exit status: 7"));
+        assert!(fallback.diagnostics[2]
+            .detail
+            .contains("did not return a Codex version"));
+        let overridden = select_codex(vec![], std::slice::from_ref(&root), Some(cli.clone()));
+        assert_eq!(overridden.source, "override");
+        assert!(overridden.diagnostics[0].detail.contains("CODEX_BIN"));
+        let failed_override = select_codex(vec![cli.clone()], &[], Some(broken));
+        assert!(failed_override.version.is_none());
+        assert_eq!(failed_override.source, "override");
+        let stale_override = select_codex(vec![cli.clone()], &[], Some(missing));
+        assert_eq!(stale_override.source, "override");
+        assert!(stale_override.version.is_none());
+        assert!(stale_override.diagnostics[0]
+            .detail
+            .contains("Fix or remove the override"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires an installed modern desktop app; set LATCH_TEST_CODEX_APP"]
+    fn live_chatgpt_layout_uses_the_bundled_runtime() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let installed =
+            PathBuf::from(env::var_os("LATCH_TEST_CODEX_APP").expect("desktop app path"));
+        assert!(installed
+            .join("Contents/Resources/codex-cli/bin/codex")
+            .is_file());
+        let root = env::temp_dir().join(format!("latch-live-chatgpt-{}", uuid::Uuid::new_v4()));
+        let app = root.join("ChatGPT.app");
+        fs::create_dir_all(&root).unwrap();
+        symlink(&installed, &app).unwrap();
+        let cli = root.join("codex");
+        fs::write(&cli, "#!/bin/sh\necho 'codex-cli 0.144.6'\n").unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut directories = vec![root.clone()];
+        directories.extend(command_directories());
+        // The old ChatGPT-only layout misses the real runtime and selects the CLI.
+        let old = select_codex(
+            vec![app.join("Contents/Resources/codex")],
+            &directories[..1],
+            None,
+        );
+        assert_eq!(old.path, Some(cli));
+        let fixed = select_codex(runtimes_in_apps(vec![app]), &directories, None);
+        assert_eq!(fixed.source, "desktop-app");
+        assert_ne!(fixed.version.as_deref(), Some("0.144.6"));
+        let path = fixed.path.unwrap();
+        let output = command_for_executable(&path, &directories)
+            .args(["app-server", "--help"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        println!(
+            "Old discovery: 0.144.6 CLI. Fixed discovery: {} via {}. App-server entry point works.",
+            fixed.version.unwrap(),
+            path.display()
+        );
+        // Exercise the actual Launch Services discovery as well, without opening an app.
+        assert!(!registered_codex_apps().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prefers_newest_app_runtime_and_picks_up_app_updates() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = env::temp_dir().join(format!("latch-app-runtime-{}", uuid::Uuid::new_v4()));
+        let cli_dir = root.join(".local/bin");
+        let cli = cli_dir.join("codex");
+        let chatgpt = root.join("Applications/ChatGPT.app/Contents/Resources/codex");
+        let codex = root.join("Applications/Codex.app/Contents/Resources/codex-cli/bin/codex");
+        let write_version = |path: &Path, version: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, format!("#!/bin/sh\necho 'codex-cli {version}'\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        write_version(&cli, "0.144.6");
+        write_version(&chatgpt, "0.155.0-alpha.9.2");
+        write_version(&codex, "0.153.0");
+        let directories = vec![cli_dir];
+        let bundles = vec![chatgpt.clone(), codex.clone()];
+        assert_eq!(
+            preferred_codex_executable(bundles.clone(), &directories),
+            Some(chatgpt.clone())
+        );
+
+        // App updates are discovered again, rather than pinning the old path.
+        write_version(&codex, "0.162.0-alpha.2");
+        assert_eq!(
+            preferred_codex_executable(bundles.clone(), &directories),
+            Some(codex.clone())
+        );
+        // Even a newer independent CLI does not override the app preference.
+        write_version(&cli, "0.200.0");
+        assert_eq!(
+            preferred_codex_executable(bundles, &directories),
+            Some(codex)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn falls_back_to_cli_when_bundled_runtimes_are_unusable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = env::temp_dir().join(format!("latch-runtime-fallback-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let write_executable = |name: &str, body: &str| {
+            let path = root.join(name);
+            fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let cli = write_executable("codex", "echo 'codex-cli 0.160.0'");
+        let broken = write_executable("broken", "exit 1");
+        let invalid = write_executable("invalid", "echo 'not a version'");
+        let bundles = vec![root.join("missing"), broken, invalid];
+        assert_eq!(
+            preferred_codex_executable(bundles.clone(), std::slice::from_ref(&root)),
+            Some(cli.clone())
+        );
+        assert_eq!(
+            preferred_codex_executable(Vec::new(), std::slice::from_ref(&root)),
+            Some(cli.clone())
+        );
+        fs::remove_file(cli).unwrap();
+        assert_eq!(
+            preferred_codex_executable(bundles, std::slice::from_ref(&root)),
+            None
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

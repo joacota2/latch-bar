@@ -17,6 +17,7 @@ import { useLatch } from "../store/LatchStore";
 import { useUpdates } from "../store/UpdateStore";
 import { UpdatesPanel } from "../components/Updates";
 import { PermissionsPanel } from "../components/Permissions";
+import { RuntimeDetection } from "../components/RuntimeDetection";
 import { needsPermissionSetup, usePermissions } from "../store/PermissionStore";
 
 const tabs = [
@@ -280,6 +281,7 @@ export function SettingsPage() {
               {environmentStatus === "loading" ? "Checking…" : "Check status"}
             </button>
           </div>
+          <RuntimeDetection runtime={runtime} />
           {environmentError && (
             <div className="info-banner">
               <CircleAlert size={18} />

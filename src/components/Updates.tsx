@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUpdates } from "../store/UpdateStore";
 import { useLatch } from "../store/LatchStore";
 import { installingUpdate, type UpdateState } from "../services/updates";
@@ -34,6 +36,22 @@ export function UpdateProgress({ state }: { state: UpdateState }) {
 export function UpdatesPanel() {
   const { state, busy, error, check, install } = useUpdates();
   const { selectedAgentId } = useLatch();
+  const [downloadError, setDownloadError] = useState("");
+  const installFailed = state.error?.startsWith(
+    "Could not install the update:",
+  );
+  const downloadInstaller = async () => {
+    setDownloadError("");
+    try {
+      await openUrl(
+        "https://github.com/joacota2/latch-bar/releases/latest/download/Latch-Bar.dmg",
+      );
+    } catch {
+      setDownloadError(
+        "Could not open the download. Visit github.com/joacota2/latch-bar/releases/latest to get the installer.",
+      );
+    }
+  };
   return (
     <section
       className="setting-group updates-panel"
@@ -100,6 +118,21 @@ export function UpdatesPanel() {
             <p className="update-error" role="alert">
               {error || state.error}
             </p>
+          )}
+          {installFailed && (
+            <div>
+              <button
+                className="secondary-button"
+                onClick={() => void downloadInstaller()}
+              >
+                Download installer
+              </button>
+              {downloadError && (
+                <p className="update-error" role="alert">
+                  {downloadError}
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}

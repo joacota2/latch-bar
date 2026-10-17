@@ -83,6 +83,8 @@ Automated tests and browser previews cannot verify native Accessibility behavior
 
 Replacement must revalidate the original target. A dispatched edit is not proof of success: if acknowledgement is unavailable, report that state and do not automatically retry. Editors without a usable selection or copy operation require manual copy/paste.
 
+Runtime discovery tests cover both app names, legacy and modern bundle layouts, custom installation paths, and explicit `CODEX_BIN` overrides. To reproduce the modern ChatGPT layout against a real installed app, run `LATCH_TEST_CODEX_APP=/Applications/Codex.app cargo test --manifest-path src-tauri/Cargo.toml --locked live_chatgpt_layout_uses_the_bundled_runtime -- --ignored --nocapture` on macOS. Point the variable at an installed app with `Contents/Resources/codex-cli/bin/codex`. This test creates a temporary `ChatGPT.app` alias and an old CLI fixture, verifies the old discovery failure and the corrected selection, and checks the real app-server entry point without starting a model turn or changing account configuration.
+
 ## Pull requests and releases
 
 Create short-lived branches from `main` and open pull requests back to `main`. Prefer squash merging and use a Conventional Commit title:
@@ -109,3 +111,5 @@ Environment caches are keyed by workspace and profile. Never resolve an agent's 
 Completed Studio handoffs are native memory only and omit selected text/conversation. Subscribe before reading; acknowledge after the result view mounts. The Context Bar keeps its answer until acknowledgement, with a five-second retryable timeout. Never backfill a temporary answer into history. Reset epochs reject old transfers and writes.
 
 `cargo test` runs a scripted Python app-server through the production pipe driver without Codex, login, or network access. WebKit/axe tests cover keyboard dialogs, compatibility fallbacks, local fonts and contrast. They do not certify macOS Accessibility or an old OS WebKit. See the signed-app release matrix in `docs/RELEASING.md`. Keep mechanical formatting in a separate change from behavior whenever practical. Use `npm run format` and `cargo fmt` locally; CI checks never rewrite files.
+
+Executable discovery probes at most four candidates at a time, with two seconds per probe and a shared ten-second deadline. It prefers the newest working desktop-app runtime, keeping the supported launcher first on version ties, then falls back to the CLI. Successful discovery is shared for five minutes; changes to any candidate, a spawn failure, or an explicit connection check invalidate the cache. A broken `CODEX_BIN` override fails with diagnostics instead of silently switching installations.

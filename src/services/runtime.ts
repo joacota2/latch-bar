@@ -20,6 +20,8 @@ export interface RuntimeStatus {
   codexHome: string;
   mode: "native" | "unavailable";
   path?: string | null;
+  source?: "desktop-app" | "cli" | "override";
+  diagnostics?: { path: string; detail: string }[];
 }
 
 export interface PlatformStatus {

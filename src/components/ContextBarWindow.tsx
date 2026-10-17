@@ -65,6 +65,8 @@ import {
 } from "../services/runtime";
 import { useLatch } from "../store/LatchStore";
 import { installingUpdate, onUpdateState } from "../services/updates";
+import { codexFailure } from "../services/codexErrors";
+import { CodexRunError } from "./CodexRunError";
 
 type NativePointer = { x: number; y: number; inside: boolean };
 const MAX_COMPACT_PINNED_AGENTS = 7;
@@ -193,7 +195,7 @@ export function ContextBarWindow() {
       width = 620;
     }
     if (state === "error") {
-      height = 195;
+      height = codexFailure(error).modelCompatibility ? 330 : 195;
       width = 620;
     }
     const anchorX = selection.bounds.x + selection.bounds.width / 2;
@@ -201,6 +203,7 @@ export function ContextBarWindow() {
   }, [
     compactWidth,
     enabledAgents.length,
+    error,
     instructionOpen,
     selection,
     showAll,
@@ -1439,8 +1442,12 @@ export function ContextBarWindow() {
                   <X size={17} />
                 </span>
                 <div className="context-run-copy">
-                  <strong>Run failed</strong>
-                  <small>The error is shown below</small>
+                  <strong>{codexFailure(error).title}</strong>
+                  <small>
+                    {codexFailure(error).modelCompatibility
+                      ? "Update, then check your connection"
+                      : "The error is shown below"}
+                  </small>
                 </div>
                 <div className="context-run-actions">
                   {result && (
@@ -1470,7 +1477,24 @@ export function ContextBarWindow() {
                   </button>
                 </div>
               </header>
-              <div className="context-error-detail">{error}</div>
+              <CodexRunError
+                key={`${sessionRef.current.historyId}-${error}`}
+                error={error}
+                workspacePath={
+                  sessionRef.current.activeAgent?.fixedWorkspacePath
+                }
+                profile={sessionRef.current.activeAgent?.codexProfile}
+                onRetry={
+                  agent &&
+                  !result &&
+                  !messages.some(
+                    (message) =>
+                      message.role === "user" && message.id !== "selected-text",
+                  )
+                    ? () => void chooseAgent(agent)
+                    : undefined
+                }
+              />
             </div>
           )}
         </div>
