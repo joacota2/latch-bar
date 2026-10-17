@@ -5,8 +5,6 @@ const contextPolicySchema = z.object({
   includeSelection: z.boolean(),
   includeApplicationName: z.boolean(),
   includeWindowTitle: z.boolean(),
-  includeClipboard: z.boolean(),
-  includeScreenshot: z.boolean(),
   includeWorkspaceMetadata: z.boolean(),
   maxSelectionCharacters: z.number().int().min(100).max(200_000),
   excludedApplications: z.array(z.string()),
@@ -16,7 +14,13 @@ const outputPolicySchema = z.object({
   mode: z.enum(["preview", "replace", "copy", "open-studio"]),
   allowReplace: z.boolean(),
   streamPreview: z.boolean(),
-  expectedOutput: z.enum(["plain-text", "markdown", "code", "diff", "automatic"]),
+  expectedOutput: z.enum([
+    "plain-text",
+    "markdown",
+    "code",
+    "diff",
+    "automatic",
+  ]),
 });
 
 export const agentConfigSchema = z.object({
@@ -33,7 +37,13 @@ export const agentConfigSchema = z.object({
   sandbox: z.enum(["read-only", "workspace-write", "full-access"]),
   permissionProfile: z.string().optional(),
   approvalPolicy: z.enum(["always-ask", "when-needed", "never"]),
-  workspaceMode: z.enum(["none", "active-application", "ask-each-time", "fixed", "recent-project"]),
+  workspaceMode: z.enum([
+    "none",
+    "active-application",
+    "ask-each-time",
+    "fixed",
+    "recent-project",
+  ]),
   fixedWorkspacePath: z.string().optional(),
   enabledMcpServers: z.array(z.string()),
   enabledSkills: z.array(z.string()),
@@ -43,7 +53,7 @@ export const agentConfigSchema = z.object({
 });
 
 const sharedAgentConfigSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   agent: agentConfigSchema,
 });
 
@@ -62,20 +72,31 @@ export function getAgentConfig(agent: CodexAgent): AgentConfig {
     reasoningEffort: agent.reasoningEffort,
     serviceTier: agent.serviceTier,
     sandbox: agent.sandbox,
-    ...(agent.permissionProfile ? { permissionProfile: agent.permissionProfile } : {}),
+    ...(agent.permissionProfile
+      ? { permissionProfile: agent.permissionProfile }
+      : {}),
     approvalPolicy: agent.approvalPolicy,
     workspaceMode: agent.workspaceMode,
-    ...(agent.fixedWorkspacePath ? { fixedWorkspacePath: agent.fixedWorkspacePath } : {}),
+    ...(agent.fixedWorkspacePath
+      ? { fixedWorkspacePath: agent.fixedWorkspacePath }
+      : {}),
     enabledMcpServers: agent.enabledMcpServers,
     enabledSkills: agent.enabledSkills,
-    contextPolicy: agent.contextPolicy,
+    contextPolicy: {
+      includeSelection: agent.contextPolicy.includeSelection,
+      includeApplicationName: agent.contextPolicy.includeApplicationName,
+      includeWindowTitle: agent.contextPolicy.includeWindowTitle,
+      includeWorkspaceMetadata: agent.contextPolicy.includeWorkspaceMetadata,
+      maxSelectionCharacters: agent.contextPolicy.maxSelectionCharacters,
+      excludedApplications: agent.contextPolicy.excludedApplications,
+    },
     outputPolicy: agent.outputPolicy,
     ...(agent.codexProfile ? { codexProfile: agent.codexProfile } : {}),
   };
 }
 
 export function serializeAgentConfig(agent: CodexAgent) {
-  return JSON.stringify({ version: 1, agent: getAgentConfig(agent) }, null, 2);
+  return JSON.stringify({ version: 2, agent: getAgentConfig(agent) }, null, 2);
 }
 
 export function parseAgentConfig(json: string): AgentConfig {
@@ -96,10 +117,15 @@ export function parseAgentConfig(json: string): AgentConfig {
 
   const issue = result.error.issues[0];
   const path = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
-  throw new Error(`Invalid agent configuration${path}: ${issue?.message ?? "unknown error"}`);
+  throw new Error(
+    `Invalid agent configuration${path}: ${issue?.message ?? "unknown error"}`,
+  );
 }
 
-export function applyAgentConfig(agent: CodexAgent, config: AgentConfig): CodexAgent {
+export function applyAgentConfig(
+  agent: CodexAgent,
+  config: AgentConfig,
+): CodexAgent {
   return {
     ...agent,
     ...config,

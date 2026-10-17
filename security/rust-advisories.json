@@ -1,9 +1,6 @@
 {
   "schema": 1,
-  "supported_release_targets": [
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin"
-  ],
+  "supported_release_targets": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
   "exceptions": [
     {
       "id": "RUSTSEC-2024-0370",

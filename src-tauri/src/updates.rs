@@ -249,9 +249,9 @@ pub async fn install_update(window: WebviewWindow, app: AppHandle) -> Result<(),
                 update.install(bytes).map_err(|error| error.to_string())
             }
         })
-            .await
-            .map_err(|error| error.to_string())?
-            .map_err(|error| format!("Could not install the update: {error}"))?;
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("Could not install the update: {error}"))?;
         Ok::<(), String>(())
     }
     .await;

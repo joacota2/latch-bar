@@ -20,9 +20,12 @@ pub(crate) struct AppServerClient {
 
 impl AppServerClient {
     pub(crate) fn connect(profile: Option<&str>, cwd: Option<&str>) -> Result<Self, String> {
-        let mut command = crate::scanner::codex_app_server_command(profile);
+        let mut command = crate::scanner::codex_app_server_command(profile)?;
         if let Some(cwd) = cwd.filter(|cwd| std::path::Path::new(cwd).is_dir()) {
             command.current_dir(cwd);
+        } else {
+            // Queries carry their target cwd explicitly. Never inherit the launching repo.
+            command.current_dir(std::env::temp_dir());
         }
         let mut child = command
             .stdin(Stdio::piped())

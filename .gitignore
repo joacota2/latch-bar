@@ -42,3 +42,6 @@ updater.password
 # Logs
 *.log
 npm-debug.log*
+
+playwright-report/
+test-results/

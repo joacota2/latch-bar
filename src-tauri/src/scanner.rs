@@ -19,18 +19,7 @@ pub struct RuntimeStatus {
     diagnostics: Vec<RuntimeProbe>,
 }
 
-#[derive(Serialize)]
-struct RuntimeProbe {
-    path: String,
-    detail: String,
-}
-
-struct RuntimeResolution {
-    path: Option<PathBuf>,
-    version: Option<String>,
-    source: &'static str,
-    diagnostics: Vec<RuntimeProbe>,
-}
+use crate::discovery::{Resolution as RuntimeResolution, RuntimeProbe};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,6 +159,8 @@ pub struct McpSummary {
 #[serde(rename_all = "camelCase")]
 pub struct SkillSummary {
     id: String,
+    legacy_id: String,
+    plugin_id: Option<String>,
     name: String,
     description: String,
     source: String,
@@ -312,7 +303,7 @@ fn codex_candidates(directories: &[PathBuf]) -> Vec<PathBuf> {
     candidates
 }
 
-fn parse_codex_version(stdout: &[u8]) -> Vec<u64> {
+pub(crate) fn parse_codex_version(stdout: &[u8]) -> Vec<u64> {
     String::from_utf8_lossy(stdout)
         .split_whitespace()
         .last()
@@ -322,7 +313,7 @@ fn parse_codex_version(stdout: &[u8]) -> Vec<u64> {
         .collect()
 }
 
-fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command {
+pub(crate) fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command {
     let mut command = Command::new(executable);
     // npm's Codex wrapper uses /usr/bin/env node. Use the sibling Node from
     // this installation for both version probes and app-server launches.
@@ -341,156 +332,78 @@ fn command_for_executable(executable: &Path, directories: &[PathBuf]) -> Command
     command
 }
 
-fn probe_codex(candidate: &Path, directories: &[PathBuf]) -> Result<(Vec<u64>, String), String> {
-    if !candidate.is_file() {
-        return Err("Not found".into());
-    }
-    let output = command_for_executable(candidate, directories)
-        .arg("--version")
-        .output()
-        .map_err(|error| format!("Could not run --version: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("Version check failed ({})", output.status));
-    }
-    let version = parse_codex_version(&output.stdout);
-    if version.len() < 3 {
-        return Err("Version check did not return a Codex version".into());
-    }
-    let label = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .trim_start_matches("codex-cli ")
-        .to_string();
-    Ok((version, label))
+#[cfg(test)]
+fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
+    crate::discovery::newest(candidates, directories).and_then(|item| item.path)
 }
-
-fn newest_codex_probe(
-    candidates: Vec<PathBuf>,
-    directories: &[PathBuf],
-    diagnostics: &mut Vec<RuntimeProbe>,
-) -> Option<(PathBuf, String)> {
-    let mut newest: Option<(PathBuf, Vec<u64>, String)> = None;
-    for candidate in candidates {
-        let result = probe_codex(&candidate, directories);
-        diagnostics.push(RuntimeProbe {
-            path: candidate.to_string_lossy().into_owned(),
-            detail: match &result {
-                Ok((_, version)) => format!("Found Codex {version}"),
-                Err(error) => error.clone(),
-            },
-        });
-        if let Ok((version, label)) = result {
-            // On ties keep the first candidate (the app's supported launcher).
-            if newest
-                .as_ref()
-                .is_none_or(|(_, current, _)| version > *current)
-            {
-                newest = Some((candidate, version, label));
-            }
-        }
-    }
-    newest.map(|(path, _, label)| (path, label))
-}
-
+#[cfg(test)]
 fn select_codex(
     bundled: Vec<PathBuf>,
     directories: &[PathBuf],
     configured: Option<PathBuf>,
 ) -> RuntimeResolution {
-    let mut diagnostics = Vec::new();
-    if let Some(configured) = configured {
-        if configured.is_file() {
-            let result = probe_codex(&configured, directories);
-            diagnostics.push(RuntimeProbe {
-                path: configured.to_string_lossy().into_owned(),
-                detail: match &result {
-                    Ok((_, version)) => format!("CODEX_BIN override: Codex {version}"),
-                    Err(error) => format!("CODEX_BIN override: {error}"),
-                },
-            });
-            return RuntimeResolution {
-                path: Some(configured),
-                version: result.ok().map(|(_, version)| version),
-                source: "override",
-                diagnostics,
-            };
-        }
-        diagnostics.push(RuntimeProbe {
-            path: configured.to_string_lossy().into_owned(),
-            detail: "CODEX_BIN does not point to a file; using automatic discovery".into(),
-        });
-    }
-    let (selected, source) = match newest_codex_probe(bundled, directories, &mut diagnostics) {
-        Some(selected) => (Some(selected), "desktop-app"),
-        None => (
-            newest_codex_probe(codex_candidates(directories), directories, &mut diagnostics),
-            "cli",
-        ),
-    };
-    RuntimeResolution {
-        path: selected.as_ref().map(|(path, _)| path.clone()),
-        version: selected.map(|(_, version)| version),
-        source,
-        diagnostics,
-    }
-}
-
-fn resolve_codex_executable(directories: &[PathBuf]) -> RuntimeResolution {
-    select_codex(
-        bundled_codex_executables(dirs::home_dir().as_deref()),
+    crate::discovery::select(
+        bundled,
+        codex_candidates(directories),
         directories,
-        env::var_os("CODEX_BIN").map(PathBuf::from),
+        configured,
     )
 }
-
-#[cfg(test)]
-fn newest_codex_executable(candidates: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
-    newest_codex_probe(candidates, directories, &mut Vec::new()).map(|(path, _)| path)
-}
-
 #[cfg(test)]
 fn preferred_codex_executable(bundled: Vec<PathBuf>, directories: &[PathBuf]) -> Option<PathBuf> {
     select_codex(bundled, directories, None).path
 }
-
-pub(crate) fn codex_command() -> Command {
+fn resolve_codex(force: bool) -> Result<(RuntimeResolution, Vec<PathBuf>), String> {
     let directories = command_directories();
-    let executable = resolve_codex_executable(&directories)
-        .path
-        .unwrap_or_else(|| PathBuf::from("codex"));
-    command_for_executable(&executable, &directories)
+    let resolved = crate::discovery::resolve(
+        bundled_codex_executables(dirs::home_dir().as_deref()),
+        codex_candidates(&directories),
+        &directories,
+        env::var_os("CODEX_BIN").map(PathBuf::from),
+        force,
+    )?;
+    Ok((resolved, directories))
+}
+pub(crate) fn codex_command() -> Result<Command, String> {
+    let (resolved, directories) = resolve_codex(false)?;
+    Ok(command_for_executable(resolved.executable()?, &directories))
 }
 
 pub(crate) fn codex_spawn_error(error: std::io::Error) -> String {
+    crate::discovery::invalidate();
     if error.kind() == std::io::ErrorKind::NotFound {
         return "Codex was not found. Install the Codex app or the Codex CLI, then check Settings → Codex.".into();
     }
     format!("Could not start Codex app-server: {error}")
 }
 
-pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Command {
-    let mut command = codex_command();
+pub(crate) fn codex_app_server_command(profile: Option<&str>) -> Result<Command, String> {
+    let mut command = codex_command()?;
     if let Some(profile) = profile.filter(|profile| !profile.is_empty() && *profile != "default") {
         command.arg("--profile").arg(profile);
     }
     command.arg("app-server");
-    command
+    Ok(command)
 }
 
 #[tauri::command]
-pub fn codex_status() -> RuntimeStatus {
-    let resolved = resolve_codex_executable(&command_directories());
-    let home = codex_home();
-    RuntimeStatus {
-        available: resolved.version.is_some(),
-        version: resolved.version.unwrap_or_else(|| "not found".into()),
-        codex_home: home.to_string_lossy().into_owned(),
-        mode: "native".into(),
-        path: resolved
-            .path
-            .map(|path| path.to_string_lossy().into_owned()),
-        source: resolved.source,
-        diagnostics: resolved.diagnostics,
-    }
+pub async fn codex_status(force_refresh: Option<bool>) -> Result<RuntimeStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (resolved, _) = resolve_codex(force_refresh.unwrap_or(false))?;
+        Ok(RuntimeStatus {
+            available: resolved.version.is_some(),
+            version: resolved.version.unwrap_or_else(|| "not found".into()),
+            codex_home: codex_home().to_string_lossy().into_owned(),
+            mode: "native".into(),
+            path: resolved
+                .path
+                .map(|path| path.to_string_lossy().into_owned()),
+            source: resolved.source,
+            diagnostics: resolved.diagnostics,
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 pub(crate) fn mcp_config_overrides(
@@ -917,6 +830,19 @@ fn parse_skills(response: Option<&Value>) -> Vec<SkillSummary> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
+            let path = fs::canonicalize(&path)
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or(path);
+            let source = skill
+                .get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or("user")
+                .to_string();
+            let plugin_id = skill
+                .get("pluginId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let id = format!("skill:v1:{}", json!([source, path, plugin_id]));
             let validation_errors = errors
                 .iter()
                 .filter(|(error_path, _)| {
@@ -925,26 +851,24 @@ fn parse_skills(response: Option<&Value>) -> Vec<SkillSummary> {
                 .map(|(_, message)| message.clone())
                 .collect::<Vec<_>>();
             skills.insert(
-                slug(name),
+                id.clone(),
                 SkillSummary {
-                    id: slug(name),
+                    id,
+                    legacy_id: slug(name),
+                    plugin_id,
                     name: name.into(),
                     description: skill
                         .get("description")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .into(),
-                    source: skill
-                        .get("scope")
-                        .and_then(Value::as_str)
-                        .unwrap_or("user")
-                        .into(),
-                    path,
+                    source,
+                    path: path.clone(),
                     enabled: skill
                         .get("enabled")
                         .and_then(Value::as_bool)
                         .unwrap_or(true),
-                    compatible: validation_errors.is_empty(),
+                    compatible: !path.is_empty() && validation_errors.is_empty(),
                     validation_errors,
                 },
             );
@@ -1104,8 +1028,12 @@ fn discover_profiles(home: &Path, config_response: Option<&Value>) -> Vec<String
 pub async fn scan_codex_environment(
     workspace_path: Option<String>,
     profile: Option<String>,
+    force_refresh: Option<bool>,
 ) -> Result<EnvironmentSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        if force_refresh.unwrap_or(false) {
+            resolve_codex(true)?;
+        }
         scan_codex_environment_blocking(workspace_path, profile)
     })
     .await
@@ -1121,10 +1049,14 @@ fn scan_codex_environment_blocking(
             return Err("Workspace must be an existing directory".into());
         }
     }
-    let cwd = workspace_path.map(expand_user_path).or_else(|| {
-        env::current_dir()
-            .ok()
-            .map(|path| path.to_string_lossy().into_owned())
+    let cwd = Some(match workspace_path {
+        Some(path) => fs::canonicalize(expand_user_path(path))
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .into_owned(),
+        None => crate::runtime::projectless_path()?
+            .to_string_lossy()
+            .into_owned(),
     });
     let profile = profile
         .as_deref()
@@ -1231,6 +1163,21 @@ fn scan_codex_environment_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skills_keep_distinct_paths_and_deduplicate_repeated_listings() {
+        let response = json!({"data":[{"skills":[
+            {"name":"Review", "path":"/a/SKILL.md", "scope":"user"},
+            {"name":"Review", "path":"/b/SKILL.md", "scope":"repo"},
+            {"name":"Review", "path":"/a/SKILL.md", "scope":"user"}
+        ]}]});
+        let skills = parse_skills(Some(&response));
+        assert_eq!(skills.len(), 2);
+        assert_ne!(skills[0].id, skills[1].id);
+        assert!(skills
+            .iter()
+            .all(|skill| skill.id.starts_with("skill:v1:") && skill.legacy_id == "review"));
+    }
 
     #[test]
     fn preserves_inherited_path_precedence_when_adding_install_locations() {
@@ -1363,7 +1310,7 @@ mod tests {
                 fs::write(&path, "#!/bin/sh\necho 'codex-cli 0.162.0-alpha.17.2'\n").unwrap();
                 fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
                 let resolution = select_codex(runtimes_in_apps(vec![app.clone()]), &[], None);
-                assert_eq!(resolution.path, Some(path.clone()));
+                assert_eq!(resolution.path, Some(path.clone()), "{resolution:?}");
                 assert_eq!(resolution.source, "desktop-app");
                 fs::remove_file(path).unwrap();
             }
@@ -1392,27 +1339,28 @@ mod tests {
         }
         let fallback = select_codex(
             vec![missing.clone(), broken.clone(), malformed.clone()],
-            &[root.clone()],
+            std::slice::from_ref(&root),
             None,
         );
         assert_eq!(fallback.source, "cli");
-        assert_eq!(fallback.version.as_deref(), Some("0.144.6"));
+        assert_eq!(fallback.version.as_deref(), Some("0.144.6"), "{fallback:?}");
         assert!(fallback.diagnostics[0].detail.contains("Not found"));
         assert!(fallback.diagnostics[1].detail.contains("exit status: 7"));
         assert!(fallback.diagnostics[2]
             .detail
             .contains("did not return a Codex version"));
-        let overridden = select_codex(vec![], &[root.clone()], Some(cli.clone()));
+        let overridden = select_codex(vec![], std::slice::from_ref(&root), Some(cli.clone()));
         assert_eq!(overridden.source, "override");
         assert!(overridden.diagnostics[0].detail.contains("CODEX_BIN"));
         let failed_override = select_codex(vec![cli.clone()], &[], Some(broken));
         assert!(failed_override.version.is_none());
         assert_eq!(failed_override.source, "override");
         let stale_override = select_codex(vec![cli.clone()], &[], Some(missing));
-        assert_eq!(stale_override.source, "desktop-app");
+        assert_eq!(stale_override.source, "override");
+        assert!(stale_override.version.is_none());
         assert!(stale_override.diagnostics[0]
             .detail
-            .contains("automatic discovery"));
+            .contains("Fix or remove the override"));
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1519,15 +1467,18 @@ mod tests {
         let invalid = write_executable("invalid", "echo 'not a version'");
         let bundles = vec![root.join("missing"), broken, invalid];
         assert_eq!(
-            preferred_codex_executable(bundles.clone(), &[root.clone()]),
+            preferred_codex_executable(bundles.clone(), std::slice::from_ref(&root)),
             Some(cli.clone())
         );
         assert_eq!(
-            preferred_codex_executable(Vec::new(), &[root.clone()]),
+            preferred_codex_executable(Vec::new(), std::slice::from_ref(&root)),
             Some(cli.clone())
         );
         fs::remove_file(cli).unwrap();
-        assert_eq!(preferred_codex_executable(bundles, &[root.clone()]), None);
+        assert_eq!(
+            preferred_codex_executable(bundles, std::slice::from_ref(&root)),
+            None
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

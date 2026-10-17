@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "studio-close",
+  "description": "Hide Studio only after the editor has resolved unsaved changes",
+  "windows": ["studio"],
+  "permissions": ["core:window:allow-hide"]
+}

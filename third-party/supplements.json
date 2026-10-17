@@ -436,7 +436,7 @@
       ]
     },
     "npm:lucide-react@0.468.0": {
-      "reason": "Lucide retains attribution for icons originally from Feather (MIT); include Feather’s full upstream MIT permission text as well as Lucide’s published ISC notice.",
+      "reason": "Lucide retains attribution for icons originally from Feather (MIT); include Feather\u2019s full upstream MIT permission text as well as Lucide\u2019s published ISC notice.",
       "files": [
         {
           "path": "third-party/supplemental/308028e93fcf84972523cdf6e616f73168546b4953895f516d01287f16fe7bee.txt",
@@ -454,30 +454,59 @@
           "url": "https://raw.githubusercontent.com/spdx/license-list-data/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
         }
       ]
+    },
+    "npm:wicg-inert@3.1.3": {
+      "reason": "The package declares W3C-20150513 and its source header links the 2015 license. LICENSE.md links the 2023 version. Preserve both full notices alongside the upstream notice. Latch bundles the unmodified inert polyfill with normal JavaScript build transformations; no upstream source patches. Both texts permit copying and distribution with notices and disclaimers retained, and prohibit unauthorized trademark publicity.",
+      "files": [
+        {
+          "path": "third-party/supplemental/7cfe4d7aaf9aee3cecb77b3b6a075936b406a94a312bdfd3db33f18de9beb9c6.txt",
+          "sha256": "7cfe4d7aaf9aee3cecb77b3b6a075936b406a94a312bdfd3db33f18de9beb9c6",
+          "url": "https://www.w3.org/copyright/software-license-2015/"
+        },
+        {
+          "path": "third-party/supplemental/605b661b64cbfd993d400c506b28d8a2f78a482ec764789c7308aac86eaee74b.txt",
+          "sha256": "605b661b64cbfd993d400c506b28d8a2f78a482ec764789c7308aac86eaee74b",
+          "url": "https://www.w3.org/copyright/software-license-2023/"
+        }
+      ]
     }
   },
   "assets": [
     {
       "name": "dmsans",
       "license": "OFL-1.1",
-      "delivery": "Referenced through Google Fonts in src/styles.css; font binaries are not vendored.",
+      "delivery": "Bundled locally in public/fonts/DMSans[opsz,wght].ttf; loaded offline by src/styles.css.",
       "files": [
         {
           "path": "third-party/supplemental/9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1.txt",
           "sha256": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1",
           "url": "https://raw.githubusercontent.com/google/fonts/c26e50af610a8300ad53a2b4955828e329a52d39/ofl/dmsans/OFL.txt"
         }
+      ],
+      "binary_files": [
+        {
+          "path": "public/fonts/DMSans[opsz,wght].ttf",
+          "url": "https://raw.githubusercontent.com/google/fonts/c26e50af610a8300ad53a2b4955828e329a52d39/ofl/dmsans/DMSans%5Bopsz%2Cwght%5D.ttf",
+          "sha256": "4eed9b02066ffd572938b7076f87ce0a6df0ecead8088f884ade33e708073ddc"
+        }
       ]
     },
     {
       "name": "manrope",
       "license": "OFL-1.1",
-      "delivery": "Referenced through Google Fonts in src/styles.css; font binaries are not vendored.",
+      "delivery": "Bundled locally in public/fonts/Manrope[wght].ttf; loaded offline by src/styles.css.",
       "files": [
         {
           "path": "third-party/supplemental/58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b.txt",
           "sha256": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
           "url": "https://raw.githubusercontent.com/google/fonts/16c2976c68c3137c09c69c8e9d3deada699d157e/ofl/manrope/OFL.txt"
+        }
+      ],
+      "binary_files": [
+        {
+          "path": "public/fonts/Manrope[wght].ttf",
+          "url": "https://raw.githubusercontent.com/google/fonts/16c2976c68c3137c09c69c8e9d3deada699d157e/ofl/manrope/Manrope%5Bwght%5D.ttf",
+          "sha256": "d0639be45d0af36e798172419d7bd173c4bd4f29e2b76cbb69db1d11bf8b0a40"
         }
       ]
     }

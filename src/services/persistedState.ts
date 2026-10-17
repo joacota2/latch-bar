@@ -39,8 +39,6 @@ const runSchema = z.object({
 function validSettings(input: AppSettings): AppSettings {
   const out = { ...seedSettings };
   for (const key of [
-    "launchAtLogin",
-    "showMenuBar",
     "contextBarEnabled",
     "storeHistory",
     "storeSelectedText",
@@ -68,6 +66,7 @@ function validSettings(input: AppSettings): AppSettings {
   return out;
 }
 export interface PersistedState {
+  schemaVersion?: number;
   defaultAgentsVersion?: number;
   agents?: CodexAgent[];
   runs?: Run[];
@@ -158,9 +157,10 @@ export function normalizePersisted(input: unknown) {
         : 0,
       DEFAULT_AGENTS_VERSION,
     ),
-    agents: agents?.filter(
-      (agent) => persistedAgentSchema.safeParse(agent).success,
-    ),
+    agents: agents?.flatMap((agent) => {
+      const result = persistedAgentSchema.safeParse(agent);
+      return result.success ? [result.data] : [];
+    }),
     settings: settings ? validSettings(settings) : undefined,
     savedWorkspaces: Array.isArray(parsed.savedWorkspaces)
       ? parsed.savedWorkspaces.flatMap((item) => {
@@ -199,6 +199,7 @@ export type SavedState = Required<PersistedState>;
 export function completeState(input: unknown): SavedState {
   const parsed = normalizePersisted(input);
   return {
+    schemaVersion: 2,
     defaultAgentsVersion:
       parsed?.defaultAgentsVersion ?? DEFAULT_AGENTS_VERSION,
     agents: parsed?.agents ?? seedAgents,

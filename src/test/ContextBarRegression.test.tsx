@@ -1,3 +1,4 @@
+import { emptyCatalog } from "./environment";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,7 +97,7 @@ describe("Context Bar lifecycle", () => {
       .mockResolvedValueOnce({ runId: "run-1", prompt: "first" })
       .mockResolvedValueOnce({ runId: "run-2", prompt: "second" });
     mocks.respondToApproval.mockReset().mockResolvedValue(undefined);
-    mocks.scanCodexEnvironment.mockReset().mockResolvedValue(null);
+    mocks.scanCodexEnvironment.mockReset().mockResolvedValue(emptyCatalog);
     mocks.chooseWorkspaceFolder.mockReset().mockResolvedValue(null);
     mocks.copyNativeText.mockResolvedValue(undefined);
     mocks.continueNativeRun.mockResolvedValue(undefined);
@@ -107,7 +108,11 @@ describe("Context Bar lifecycle", () => {
     mocks.setContextBarFocusable.mockResolvedValue(undefined);
     mocks.focusSelectionApplication.mockResolvedValue(undefined);
     mocks.openStudio.mockResolvedValue(undefined);
-    mocks.getRuntimeStatus.mockResolvedValue({ available: true, version: "0.146.1", path: "/Applications/Codex.app/Contents/Resources/codex-cli/bin/codex" });
+    mocks.getRuntimeStatus.mockResolvedValue({
+      available: true,
+      version: "0.146.1",
+      path: "/Applications/Codex.app/Contents/Resources/codex-cli/bin/codex",
+    });
     mocks.replaceNativeSelection
       .mockReset()
       .mockResolvedValue({ method: "accessibility", verified: true });
@@ -155,6 +160,83 @@ describe("Context Bar lifecycle", () => {
     );
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalled());
   };
+  it("keeps a newer queued request while an older response is delivered", async () => {
+    configure();
+    await launch();
+    let respond!: () => void;
+    mocks.respondToApproval.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          respond = resolve;
+        }),
+    );
+    message({
+      id: 7,
+      method: "item/commandExecution/requestApproval",
+      params: { command: "first command", cwd: "/first" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    message({
+      id: "7",
+      method: "item/permissions/requestApproval",
+      params: {
+        permissions: {
+          network: { enabled: true },
+          fileSystem: { write: ["/second"] },
+        },
+        reason: "Second request",
+      },
+    });
+    message({
+      id: 7,
+      method: "item/commandExecution/requestApproval",
+      params: { command: "first command" },
+    });
+    await act(async () => respond());
+    expect(screen.getByText("/second")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Allow for this turn" }),
+    ).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Deny" }));
+    expect(mocks.respondToApproval).toHaveBeenLastCalledWith("run-1", "7", {
+      permissions: {},
+      scope: "turn",
+    });
+    expect(
+      screen.queryByRole("button", { name: "Allow for this turn" }),
+    ).not.toBeInTheDocument();
+  });
+  it("shows available file changes and rejects unsupported grants while retaining Deny", async () => {
+    configure();
+    await launch();
+    message({
+      method: "item/started",
+      params: {
+        item: {
+          id: "edit",
+          type: "fileChange",
+          changes: [{ path: "/repo/file.ts", diff: "+fixed" }],
+        },
+      },
+    });
+    message({
+      id: 1,
+      method: "item/fileChange/requestApproval",
+      params: { itemId: "edit" },
+    });
+    expect(screen.getByText("/repo/file.ts")).toBeInTheDocument();
+    expect(screen.getByText("+fixed")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Deny" }));
+    message({
+      id: 2,
+      method: "item/permissions/requestApproval",
+      params: { permissions: { future: true } },
+    });
+    expect(
+      screen.getByRole("button", { name: "Allow for this turn" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
+  });
   it("GAP-02 most recent prefers latest discovered project [acceptance]", async () => {
     configure(
       { workspaceMode: "recent-project" },
@@ -209,21 +291,46 @@ describe("Context Bar lifecycle", () => {
   });
   it("shows update recovery for the reported model failure while preserving history", async () => {
     await launch();
-    const error = JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account." } });
-    message({ method: "turn/completed", params: { turn: { status: "failed", error: { message: error } } } });
-    expect(await screen.findByText("Codex may need an update")).toBeInTheDocument();
+    const error = JSON.stringify({
+      type: "error",
+      status: 400,
+      error: {
+        type: "invalid_request_error",
+        message:
+          "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.",
+      },
+    });
+    message({
+      method: "turn/completed",
+      params: { turn: { status: "failed", error: { message: error } } },
+    });
+    expect(
+      await screen.findByText("Codex may need an update"),
+    ).toBeInTheDocument();
     expect(await screen.findByText(/Open the Codex app/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Check again" }),
+    ).toBeInTheDocument();
     expect(mocks.resizeContextBar).toHaveBeenLastCalledWith(330, 620, 80);
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(key)!).runs[0]).toMatchObject({ status: "failed", activity: error }));
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(key)!).runs[0]).toMatchObject({
+        status: "failed",
+        activity: error,
+      }),
+    );
     expect(mocks.startNativeRun).toHaveBeenCalledTimes(1);
-    mocks.scanCodexEnvironment.mockResolvedValue({ ...env, account: { requiresOpenaiAuth: true, signedIn: true } });
+    mocks.scanCodexEnvironment.mockResolvedValue({
+      ...env,
+      account: { requiresOpenaiAuth: true, signedIn: true },
+    });
     await userEvent.click(screen.getByRole("button", { name: "Check again" }));
     const retry = await screen.findByRole("button", { name: "Run again" });
     expect(mocks.startNativeRun).toHaveBeenCalledTimes(1);
     await userEvent.click(retry);
     await waitFor(() => expect(mocks.startNativeRun).toHaveBeenCalledTimes(2));
-    expect(mocks.startNativeRun.mock.calls[1][1].selection).toBe("QA selection 😀");
+    expect(mocks.startNativeRun.mock.calls[1][1].selection).toBe(
+      "QA selection 😀",
+    );
   });
   it("GAP-12 approval-delivery rejection displays actionable error [acceptance]", async () => {
     await launch();

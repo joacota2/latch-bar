@@ -1,3 +1,4 @@
+import type { Run } from "../domain";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import {
   act,
@@ -14,16 +15,18 @@ import { DEFAULT_AGENTS_VERSION, seedAgents, seedSettings } from "../data/seed";
 import { LatchProvider, useLatch } from "../store/LatchStore";
 import { unavailableUpdate } from "../services/updates";
 const mocks = vi.hoisted(() => ({
-  listeners: new Map<string, Function>(),
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
   reveal: vi.fn(),
   open: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => {}),
-  listen: vi.fn(async (name: string, cb: Function) => {
-    mocks.listeners.set(name, cb);
-    return () => mocks.listeners.delete(name);
-  }),
+  listen: vi.fn(
+    async (name: string, cb: (event: { payload: unknown }) => void) => {
+      mocks.listeners.set(name, cb);
+      return () => mocks.listeners.delete(name);
+    },
+  ),
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: mocks.reveal,
@@ -139,10 +142,10 @@ const environment = {
 };
 
 const key = "latch-bar-state-v1";
-let current: any;
-let handler: any;
+let current: typeof environment;
+let handler: ReturnType<typeof vi.fn<(command: string) => unknown>>;
 let store: ReturnType<typeof useLatch>;
-const run = (id = "history") => ({
+const run = (id = "history"): Run => ({
   id,
   agentId: "improve-writing",
   agentName: "History QA",
@@ -179,8 +182,7 @@ async function editor() {
 }
 const click = async (name: string | RegExp) =>
   userEvent.click(screen.getByRole("button", { name }));
-const saved = () => JSON.parse(localStorage.getItem(key)!);
-const preset = (patch: any = {}) =>
+const preset = (patch: Record<string, unknown> = {}) =>
   localStorage.setItem(
     key,
     JSON.stringify({
@@ -198,7 +200,7 @@ beforeEach(() => {
   mocks.reveal.mockReset().mockResolvedValue(undefined);
   mocks.open.mockReset().mockResolvedValue(undefined);
   current = structuredClone(environment);
-  handler = vi.fn((command, payload) => {
+  handler = vi.fn((command) => {
     if (command === "scan_codex_environment") return current;
     if (command === "update_state") return unavailableUpdate;
     if (command === "platform_status")
@@ -264,10 +266,18 @@ describe("Studio functional regressions", () => {
   it("keeps Settings focused on implemented features", async () => {
     await mount();
     await click("Settings");
-    expect(screen.queryByRole("button", { name: "Advanced" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Launch at login" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Show menu bar icon" })).not.toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Enable Context Bar" })).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "Advanced" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Launch at login" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Show menu bar icon" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: "Enable Context Bar" }),
+    ).toBeEnabled();
     await click("Codex");
     expect(screen.getByRole("button", { name: "Check status" })).toBeEnabled();
   });
@@ -325,7 +335,7 @@ describe("Studio functional regressions", () => {
       await store.upsertRun({
         ...run(),
         finalResponse: "NEW COMPLETED ANSWER",
-      } as any);
+      });
     });
     expect(screen.getByText("NEW COMPLETED ANSWER")).toBeInTheDocument();
     await act(async () => {
